@@ -1,8 +1,9 @@
-8382109200:AAEkp8XpzsvoD6JJ_MemxJwb27EULR1y2EMfrom telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import pandas as pd
 import io
 
+# TOKEN CORRECTO - USA ESTE EXACTO
 TOKEN = '8382109200:AAEkp8XpzsvoD6JJ_MemxJwb27EULR1y2EM'
 
 KEYBOARD_OPTIONS = [
