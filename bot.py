@@ -1,10 +1,9 @@
-import os
-from telegram import Update, ReplyKeyboardMarkup
+8382109200:AAEkp8XpzsvoD6JJ_MemxJwb27EULR1y2EMfrom telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-# import pandas as pd  # DESHABILITADO TEMPORALMENTE
+import pandas as pd
 import io
 
-TOKEN = os.environ.get('BOT_TOKEN')
+TOKEN = '8382109200:AAEkp8XpzsvoD6JJ_MemxJwb27EULR1y2EM'
 
 KEYBOARD_OPTIONS = [
     ["📊 Analizar CSV", "📈 Ejemplo SQL"],
@@ -18,7 +17,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Puedo ayudarte con:\n"
         "• 📊 **Analizar CSV**: Envíame un archivo .csv y te daré estadísticas básicas.\n"
         "• 📈 **Ejemplo SQL**: Te mostraré una consulta SQL de ejemplo.\n"
-        "• 🧮 **Calculadora**: Escribe una operación como '2+2' o 'sqrt(16)'\n\n"
+        "• 🧮 **Calculadora**: Escribe una operación como '2+2' o 'sqrt(16)'.\n\n"
         "Usa los botones del menú o escribe /help."
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=REPLY_KEYBOARD)
@@ -51,7 +50,7 @@ async def sql_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == "📊 Analizar CSV":
-        await update.message.reply_text("📎 *Función CSV temporalmente deshabilitada por mantenimiento.*", parse_mode='Markdown')
+        await update.message.reply_text("📎 Envíame un archivo **.csv** y te daré un resumen estadístico.", parse_mode='Markdown')
     elif text == "📈 Ejemplo SQL":
         await sql_command(update, context)
     elif text == "🧮 Calculadora":
@@ -61,9 +60,32 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await handle_calculation(update, context)
 
-# ----- MANEJADOR DE ARCHIVOS CSV (DESHABILITADO) -----
 async def handle_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📊 *Función CSV temporalmente deshabilitada.*", parse_mode='Markdown')
+    file = await update.message.document.get_file()
+    file_bytes = io.BytesIO()
+    await file.download_to_memory(file_bytes)
+    file_bytes.seek(0)
+    
+    try:
+        df = pd.read_csv(file_bytes)
+        summary = (
+            f"📊 *Resumen del CSV:*\n"
+            f"• Filas: {df.shape[0]}\n"
+            f"• Columnas: {df.shape[1]}\n"
+            f"• Columnas: {', '.join(df.columns.tolist())}\n\n"
+            f"📈 *Estadísticas (numéricas):*\n"
+        )
+        numeric_df = df.select_dtypes(include='number')
+        if not numeric_df.empty:
+            stats = numeric_df.describe().round(2)
+            for col in numeric_df.columns:
+                summary += f"\n*{col}:* μ={stats[col]['mean']}, σ={stats[col]['std']}"
+        else:
+            summary += "\nNo se encontraron columnas numéricas."
+        
+        await update.message.reply_text(summary, parse_mode='Markdown')
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error al procesar el CSV: {str(e)}")
 
 async def handle_calculation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -75,10 +97,6 @@ async def handle_calculation(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ No pude procesar la operación. Usa formato como: 2+2, 3*5, 2**8")
 
 def main():
-    if not TOKEN:
-        print("❌ ERROR: No se encontró la variable de entorno 'BOT_TOKEN'")
-        return
-    
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start_command))
@@ -86,7 +104,7 @@ def main():
     app.add_handler(CommandHandler("sql", sql_command))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
-    # app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), handle_csv))  # Deshabilitado
+    app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), handle_csv))
     
     print("🤖 DataBot encendido. Presiona Ctrl+C para apagar.")
     app.run_polling()
