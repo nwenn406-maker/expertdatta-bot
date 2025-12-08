@@ -43,10 +43,6 @@ def get_admin_id():
     part3 = 1731           # 1731
     return part1 + part2 + part3  # 7767981731
 
-# Modificar la línea donde necesitas verificar el admin
-# En lugar de: if user.id != ADMIN_ID:
-# Usa: if user.id != get_admin_id():
-
 # ================= SISTEMA ANTI-CLONACIÓN COMPLETO =================
 class AntiCloneSystem:
     def __init__(self):
@@ -842,4 +838,8 @@ def main():
     # Iniciar bot
     print("🤖 Bot seguro iniciado - Listo para comandos")
     print("🔒 Protección anti-clonación: ACTIVA")
-    print("📞 Comandos: /start, /tokens, /
+    print("📞 Comandos: /start, /tokens, /url, /security, /add, /stats")
+    
+    app.run_polling()
+
+if __name__ ==
