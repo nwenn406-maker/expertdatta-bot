@@ -6,10 +6,12 @@ import json
 import sqlite3
 from datetime import datetime
 import re
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+import io
 
 TOKEN = '8382109200:AAEkp8XpzsvoD6JJ_MemxJwb27EULR1y2EM'
-
-# Base de datos local
 DB_NAME = 'data_extraction.db'
 
 def init_database():
@@ -28,21 +30,87 @@ def init_database():
     conn.commit()
     conn.close()
 
+def create_pdf_report(data):
+    """Crea un PDF con los resultados del análisis"""
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    
+    # Título
+    pdf.setTitle("Reporte de Análisis Web")
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(50, 750, "📊 REPORTE DE ANÁLISIS WEB")
+    
+    # Línea separadora
+    pdf.line(50, 740, 550, 740)
+    
+    # Información básica
+    pdf.setFont("Helvetica", 10)
+    y_position = 720
+    
+    pdf.drawString(50, y_position, f"Fecha/Hora: {data['fecha_hora']}")
+    y_position -= 20
+    pdf.drawString(50, y_position, f"Dominio Web: {data['url']}")
+    y_position -= 20
+    pdf.drawString(50, y_position, f"Total de Hits: {data['total_hits']} caracteres")
+    y_position -= 30
+    
+    # Estadísticas
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(50, y_position, "ESTADÍSTICAS:")
+    y_position -= 20
+    pdf.setFont("Helvetica", 10)
+    
+    stats = [
+        f"• Título: {data['titulo'][:50]}...",
+        f"• Descripción: {data['descripcion'][:80]}...",
+        f"• Enlaces encontrados: {data['enlaces']}",
+        f"• Imágenes: {data['imagenes']}",
+        f"• Formularios: {data['formularios']}",
+        f"• Emails detectados: {data['emails_encontrados']}"
+    ]
+    
+    for stat in stats:
+        pdf.drawString(70, y_position, stat)
+        y_position -= 18
+    
+    # Emails encontrados
+    if data['emails_detectados']:
+        y_position -= 20
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(50, y_position, "CORREOS ELECTRÓNICOS DETECTADOS:")
+        y_position -= 20
+        pdf.setFont("Helvetica", 10)
+        
+        for email in data['emails_detectados'][:20]:  # Máximo 20 emails
+            pdf.drawString(70, y_position, f"• {email}")
+            y_position -= 15
+            if y_position < 50:  # Nueva página si se acaba el espacio
+                pdf.showPage()
+                y_position = 750
+    
+    # Pie de página
+    pdf.setFont("Helvetica-Oblique", 8)
+    pdf.drawString(50, 30, f"Reporte generado por expertdatta_bot - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /start"""
     menu_text = (
         "🤖 *BOT DE EXTRACCIÓN DE DATOS*\n\n"
         "Comandos disponibles:\n"
         "/start - Muestra este menú\n"
-        "/url [enlace] - Extrae datos de una URL\n"
+        "/url [enlace] - Extrae datos y genera PDF\n"
         "/myid - Muestra tu ID de usuario\n"
-        "/stats - Muestra estadísticas de extracción\n\n"
+        "/stats - Muestra estadísticas\n\n"
         "Ejemplo: /url https://ejemplo.com"
     )
     await update.message.reply_text(menu_text, parse_mode='Markdown')
 
 async def url_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /url - Extrae datos de una URL"""
+    """Comando /url - Extrae datos y genera PDF"""
     if not context.args:
         await update.message.reply_text(
             "❌ Debes proporcionar una URL.\n"
@@ -77,9 +145,9 @@ async def url_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_images = len(soup.find_all('img'))
             total_forms = len(soup.find_all('form'))
             
-            # Extraer emails (solo para demostración)
+            # Extraer emails
             emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', response.text)
-            unique_emails = list(set(emails))[:10]  # Limitar a 10 emails únicos
+            unique_emails = list(set(emails))
             
             # Guardar en base de datos
             conn = sqlite3.connect(DB_NAME)
@@ -98,12 +166,29 @@ async def url_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit()
             conn.close()
             
-            # Preparar respuesta
-            analysis_text = (
+            # Preparar datos para PDF
+            data_for_pdf = {
+                'fecha_hora': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'url': url,
+                'total_hits': len(response.text),
+                'titulo': page_title,
+                'descripcion': description,
+                'enlaces': total_links,
+                'imagenes': total_images,
+                'formularios': total_forms,
+                'emails_encontrados': len(unique_emails),
+                'emails_detectados': unique_emails
+            }
+            
+            # Crear PDF
+            pdf_buffer = create_pdf_report(data_for_pdf)
+            
+            # Preparar mensaje de resumen
+            summary_text = (
                 f"📊 *ANÁLISIS COMPLETADO*\n"
-                f"Fecha/Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Fecha/Hora: {data_for_pdf['fecha_hora']}\n"
                 f"Dominio Web: {url}\n"
-                f"Total de Hits: {len(response.text)} caracteres\n\n"
+                f"Total de Hits: {data_for_pdf['total_hits']} caracteres\n\n"
                 f"*ESTADÍSTICAS:*\n"
                 f"• Título: {page_title[:50]}...\n"
                 f"• Descripción: {description[:80]}...\n"
@@ -111,14 +196,18 @@ async def url_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"• Imágenes: {total_images}\n"
                 f"• Formularios: {total_forms}\n"
                 f"• Emails detectados: {len(unique_emails)}\n\n"
+                f"📄 *Generando PDF...*"
             )
             
-            if unique_emails:
-                analysis_text += "*CORREOS ENCONTRADOS:*\n"
-                for email in unique_emails:
-                    analysis_text += f"• {email}\n"
+            await update.message.reply_text(summary_text, parse_mode='Markdown')
             
-            await update.message.reply_text(analysis_text, parse_mode='Markdown')
+            # Enviar PDF
+            pdf_filename = f"analisis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            await update.message.reply_document(
+                document=pdf_buffer,
+                filename=pdf_filename,
+                caption=f"📄 Reporte PDF - {url}"
+            )
             
         else:
             await update.message.reply_text(f"❌ Error al acceder a la URL. Código: {response.status_code}")
@@ -186,7 +275,7 @@ def main():
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("stats", stats_command))
     
-    print("🤖 Bot de Extracción de Datos iniciado")
+    print("🤖 Bot de Extracción de Datos con PDF iniciado")
     print("✅ Comandos disponibles: /start, /url, /myid, /stats")
     
     app.run_polling()
