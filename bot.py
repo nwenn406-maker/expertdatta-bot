@@ -21,7 +21,7 @@ import sys
 # ================= CONFIGURACIÓN SEGURA =================
 TOKEN = '8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q'
 DB_NAME = 'data_extraction.db'
-ADMIN_ID = 7767981731  # TU ID
+ADMIN_ID = 776  # TU ID
 
 # CLAVES DE SEGURIDAD (NO COMPARTIR)
 BOT_FINGERPRINT = hashlib.sha256("expertdatta_bot_2025_secure".encode()).hexdigest()
