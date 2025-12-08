@@ -23,25 +23,19 @@ TOKEN = '8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q'
 DB_NAME = 'data_extraction.db'
 
 # ADMIN_ID OFUSCADO PERO FUNCIONAL (tu ID real: 7767981731)
-# Se calcula de forma oculta para dificultar el rastreo
 ADMIN_ID = int(str(7767981731)[:3]) * 1000000 + int(str(7767981731)[3:6]) * 1000 + int(str(7767981731)[6:])
-# Esto equivale a: 776 * 1000000 + 798 * 1000 + 1731 = 7767981731
-
-# Otra capa de verificación (opcional)
-ADMIN_ID_HASH = hashlib.sha256(str(7767981731).encode()).hexdigest()[:32]
 
 # CLAVES DE SEGURIDAD (NO COMPARTIR)
 BOT_FINGERPRINT = hashlib.sha256("expertdatta_bot_2025_secure".encode()).hexdigest()
-INSTANCE_SECRET = os.urandom(32).hex()  # Secreto único por instancia
+INSTANCE_SECRET = os.urandom(32).hex()
 
 # ================= FUNCIÓN PARA VERIFICAR ADMIN ID =================
 def get_admin_id():
     """Devuelve el ID real del admin sin exponerlo directamente"""
-    # Multiples capas de ofuscación
-    part1 = 776 * 1000000  # 776000000
-    part2 = 798 * 1000     # 798000
-    part3 = 1731           # 1731
-    return part1 + part2 + part3  # 7767981731
+    part1 = 776 * 1000000
+    part2 = 798 * 1000
+    part3 = 1731
+    return part1 + part2 + part3
 
 # ================= SISTEMA ANTI-CLONACIÓN COMPLETO =================
 class AntiCloneSystem:
@@ -60,11 +54,9 @@ class AntiCloneSystem:
     
     def validate_bot_identity(self):
         """Valida que este sea el bot original"""
-        # Hash del token + fingerprint
         token_hash = hashlib.sha256(TOKEN.encode()).hexdigest()
         expected_fingerprint = hashlib.sha256(f"{token_hash}{BOT_FINGERPRINT}".encode()).hexdigest()
         
-        # Verificar contra registro conocido
         known_bots = {
             "expertdatta_bot": "d41a8cd98f00b204e9800998ecf8427e",
             "expertdatta_bot_clone": "00000000000000000000000000000000"
@@ -94,7 +86,6 @@ class AntiCloneSystem:
             )
         ''')
         
-        # Registrar esta instancia
         hostname = socket.gethostname()
         cursor.execute('''
             INSERT OR REPLACE INTO bot_instances 
@@ -102,7 +93,6 @@ class AntiCloneSystem:
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (self.instance_id, BOT_FINGERPRINT, hostname, self.start_time))
         
-        # Verificar otras instancias activas
         cursor.execute('''
             SELECT instance_id, hostname, start_time 
             FROM bot_instances 
@@ -113,7 +103,6 @@ class AntiCloneSystem:
         
         active_instances = cursor.fetchall()
         
-        # Marcar instancias antiguas como inactivas
         cursor.execute('''
             UPDATE bot_instances 
             SET status = 'inactive' 
@@ -201,13 +190,11 @@ security_system = AntiCloneSystem()
 # ================= BASE DE DATOS SEGURA =================
 def init_secure_database():
     """Inicializa base de datos con seguridad"""
-    # Primero validar identidad del bot
     if not security_system.validate_bot_identity():
         print("❌ ERROR: Validación de identidad fallida")
         security_system.log_security_event("identity_failure", "Fallo en validación de bot")
         return False
     
-    # Verificar instancias duplicadas
     if not security_system.check_duplicate_instances():
         security_system.log_security_event("duplicate_instance", "Instancia duplicada detectada")
         print("⚠️ Advertencia: Posible clonación detectada")
@@ -215,7 +202,6 @@ def init_secure_database():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Tabla de usuarios con protección
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -230,7 +216,6 @@ def init_secure_database():
         )
     ''')
     
-    # Tabla de análisis protegida
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS extractions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,7 +228,6 @@ def init_secure_database():
         )
     ''')
     
-    # Tabla de tokens protegida
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS token_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,12 +259,10 @@ def get_user_tokens(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Verificar usuario registrado
     cursor.execute('SELECT tokens, is_verified FROM users WHERE user_id = ?', (user_id,))
     result = cursor.fetchone()
     
     if not result:
-        # Usuario nuevo - crear con seguridad
         security_system.log_security_event("new_user", f"Usuario {user_id} creado")
         conn.close()
         return 0
@@ -301,7 +283,6 @@ def create_secure_user(user_id, username, first_name):
     
     cursor.execute('SELECT 1 FROM users WHERE user_id = ?', (user_id,))
     if not cursor.fetchone():
-        # Hash de usuario único
         user_hash = security_system.generate_security_hash(f"{user_id}{username}")
         
         cursor.execute('''
@@ -309,7 +290,6 @@ def create_secure_user(user_id, username, first_name):
             VALUES (?, ?, ?, 3, 500, 3, ?)
         ''', (user_id, username, first_name, user_hash))
         
-        # Transacción inicial segura
         trans_hash = security_system.generate_security_hash(f"{user_id}_initial_tokens")
         cursor.execute('''
             INSERT INTO token_transactions (user_id, amount, type, security_hash)
@@ -326,7 +306,6 @@ def consume_secure_token(user_id, url):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Verificar tokens disponibles
     cursor.execute('SELECT tokens FROM users WHERE user_id = ?', (user_id,))
     result = cursor.fetchone()
     
@@ -335,13 +314,10 @@ def consume_secure_token(user_id, url):
         security_system.log_security_event("no_tokens", f"User {user_id} sin tokens")
         return False
     
-    # Generar hash de transacción
     trans_hash = security_system.generate_security_hash(f"{user_id}_consume_{url}")
     
-    # Actualizar tokens
     cursor.execute('UPDATE users SET tokens = tokens - 1 WHERE user_id = ?', (user_id,))
     
-    # Registrar transacción
     cursor.execute('''
         INSERT INTO token_transactions (user_id, amount, type, security_hash)
         VALUES (?, ?, ?, ?)
@@ -355,7 +331,6 @@ def consume_secure_token(user_id, url):
 
 def add_secure_tokens(user_id, amount, admin_id):
     """Añade tokens con seguridad de admin"""
-    # Usar la función get_admin_id() en lugar de la variable directamente
     if admin_id != get_admin_id():
         security_system.log_security_event("unauthorized_admin", f"Intento no autorizado por {admin_id}")
         return False, "❌ No autorizado"
@@ -372,18 +347,14 @@ def add_secure_tokens(user_id, amount, admin_id):
     
     current_tokens, max_tokens = user
     
-    # Verificar límite
     if current_tokens + amount > max_tokens:
         conn.close()
         return False, f"❌ Límite máximo: {max_tokens} tokens"
     
-    # Generar hash de transacción
     trans_hash = security_system.generate_security_hash(f"{user_id}_add_{amount}_by_{admin_id}")
     
-    # Actualizar tokens
     cursor.execute('UPDATE users SET tokens = tokens + ? WHERE user_id = ?', (amount, user_id))
     
-    # Registrar transacción
     cursor.execute('''
         INSERT INTO token_transactions (user_id, amount, type, admin_id, security_hash)
         VALUES (?, ?, ?, ?, ?)
@@ -399,10 +370,8 @@ def add_secure_tokens(user_id, amount, admin_id):
 def secure_url_analysis(url):
     """Analiza URL con medidas de seguridad"""
     try:
-        # Delay aleatorio para evitar detección
         time.sleep(random.uniform(1.5, 4))
         
-        # Headers variados
         headers = {
             'User-Agent': random.choice([
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -419,23 +388,19 @@ def secure_url_analysis(url):
             'Cache-Control': 'max-age=0'
         }
         
-        # Timeout ajustado
         response = requests.get(url, headers=headers, timeout=15)
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Datos limitados por seguridad
             title = soup.title.string[:100] if soup.title else 'Sin título'
             meta_desc = soup.find('meta', attrs={'name': 'description'})
             description = meta_desc['content'][:150] if meta_desc else 'Sin descripción'
             
-            # Conteos seguros
             links = len(soup.find_all('a', limit=100))
             images = len(soup.find_all('img', limit=50))
             forms = len(soup.find_all('form', limit=20))
             
-            # Emails limitados
             emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', response.text)
             unique_emails = list(set(emails))[:5]
             
@@ -464,7 +429,6 @@ def save_secure_extraction(user_id, url, data):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Generar hash de seguridad para el análisis
     security_hash = security_system.generate_security_hash(f"{user_id}{url}{json.dumps(data)}")
     
     cursor.execute('''
@@ -482,7 +446,6 @@ async def start_secure_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """Comando /start protegido"""
     user = update.message.from_user
     
-    # Verificar sistema de seguridad
     if not security_system.check_duplicate_instances():
         await update.message.reply_text("⚠️ *SISTEMA EN MODO SEGURIDAD*\n\nReiniciando verificaciones...")
     
@@ -534,7 +497,6 @@ async def url_secure_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Comando /url con máxima seguridad"""
     user = update.message.from_user
     
-    # Verificar tokens
     tokens = get_user_tokens(user.id)
     if tokens <= 0:
         await update.message.reply_text(
@@ -560,12 +522,10 @@ async def url_secure_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     
-    # Verificar URL válida
     if len(url) > 200:
         await update.message.reply_text("❌ URL demasiado larga.")
         return
     
-    # Consumir token seguro
     if not consume_secure_token(user.id, url):
         await update.message.reply_text("❌ Error en transacción segura.")
         return
@@ -579,7 +539,6 @@ async def url_secure_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode='Markdown'
     )
     
-    # Análisis seguro
     result = secure_url_analysis(url)
     
     if not result['success']:
@@ -588,13 +547,10 @@ async def url_secure_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     data = result['data']
     
-    # Guardar con seguridad
     security_hash = save_secure_extraction(user.id, url, data)
     
-    # Tokens restantes
     tokens_left = get_user_tokens(user.id)
     
-    # Crear mensaje seguro
     summary = (
         f"✅ *ANÁLISIS COMPLETADO - SISTEMA SEGURO*\n\n"
         f"🔒 Hash análisis: `{security_hash[:24]}...`\n"
@@ -614,7 +570,6 @@ async def url_secure_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await update.message.reply_text(summary, parse_mode='Markdown')
     
-    # Enviar PDF seguro
     try:
         pdf_buffer = create_secure_pdf(data, url, security_hash)
         filename = f"analisis_secure_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -632,7 +587,6 @@ def create_secure_pdf(data, url, security_hash):
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     
-    # Marca de agua de seguridad
     pdf.setFont("Helvetica-Oblique", 30)
     pdf.setFillColor(0.95, 0.95, 0.95, 0.2)
     pdf.rotate(45)
@@ -640,12 +594,10 @@ def create_secure_pdf(data, url, security_hash):
         pdf.drawString(100, i*150, "PROTEGIDO ANTI-CLONACIÓN")
     pdf.rotate(-45)
     
-    # Encabezado seguro
     pdf.setFillColor(0, 0, 0.8, 1)
     pdf.setFont("Helvetica-Bold", 18)
     pdf.drawString(50, 750, "🛡️ REPORTE SEGURO DE ANÁLISIS")
     
-    # Información de seguridad
     pdf.setFont("Helvetica", 9)
     y = 730
     
@@ -658,13 +610,11 @@ def create_secure_pdf(data, url, security_hash):
     pdf.drawString(50, y, f"URL: {url[:60]}")
     y -= 20
     
-    # Línea de seguridad
     pdf.setStrokeColor(0, 0, 0.8)
     pdf.setLineWidth(1)
     pdf.line(50, y, 550, y)
     y -= 20
     
-    # Datos
     pdf.setFillColor(0, 0, 0, 1)
     pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(50, y, "DATOS DEL ANÁLISIS:")
@@ -685,7 +635,6 @@ def create_secure_pdf(data, url, security_hash):
         pdf.drawString(60, y, line)
         y -= 16
     
-    # Emails si existen
     if data.get('emails'):
         y -= 10
         pdf.setFont("Helvetica-Bold", 12)
@@ -701,7 +650,6 @@ def create_secure_pdf(data, url, security_hash):
                 y = 750
                 pdf.setFont("Helvetica", 9)
     
-    # Pie de página seguro
     pdf.setFont("Helvetica-Oblique", 8)
     pdf.drawString(50, 30, f"© 2025 expertdatta_bot - Sistema Anti-Clonación v2.0")
     pdf.drawString(400, 30, f"Hash: {hashlib.md5(TOKEN.encode()).hexdigest()[:12]}")
@@ -745,7 +693,6 @@ async def admin_add_secure_command(update: Update, context: ContextTypes.DEFAULT
     """Comando /add seguro - Solo admin"""
     user = update.message.from_user
     
-    # USAR get_admin_id() en lugar de la variable ADMIN_ID
     if user.id != get_admin_id():
         security_system.log_security_event("unauthorized_command", f"User {user.id} intentó /add")
         await update.message.reply_text("❌ No autorizado.")
@@ -766,7 +713,6 @@ async def admin_add_secure_command(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text("❌ Cantidad inválida (1-1000).")
             return
         
-        # Usar get_admin_id() aquí también
         success, message = add_secure_tokens(target_id, amount, get_admin_id())
         await update.message.reply_text(message)
         
@@ -780,7 +726,6 @@ def main():
     print("🛡️  SISTEMA ANTI-CLONACIÓN COMPLETO - ACTIVADO")
     print("=" * 60)
     
-    # Inicializar seguridad
     print(f"🔒 Instancia ID: {security_system.instance_id}")
     print(f"🔄 Validando identidad del bot...")
     
@@ -792,16 +737,13 @@ def main():
     
     print("✅ Identidad del bot verificada")
     
-    # Inicializar base de datos segura
     if not init_secure_database():
         print("❌ Error inicializando base de datos segura")
         return
     
-    # Verificar instancias
     if not security_system.check_duplicate_instances():
         print("⚠️ ADVERTENCIA: Posible instancia duplicada detectada")
     
-    # Mostrar admin ID de forma segura
     admin_display = str(get_admin_id())
     masked_admin = admin_display[:3] + "****" + admin_display[-4:]
     
@@ -811,17 +753,14 @@ def main():
     print("✅ Anti-clonación: ACTIVO MÁXIMO")
     print("=" * 60)
     
-    # Crear aplicación
     app = Application.builder().token(TOKEN).build()
     
-    # Comandos seguros
     app.add_handler(CommandHandler("start", start_secure_command))
     app.add_handler(CommandHandler("tokens", tokens_secure_command))
     app.add_handler(CommandHandler("url", url_secure_command))
     app.add_handler(CommandHandler("security", security_info_command))
     app.add_handler(CommandHandler("add", admin_add_secure_command))
     
-    # Comando stats básico
     async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.message.from_user
         tokens = get_user_tokens(user.id)
@@ -835,11 +774,11 @@ def main():
     
     app.add_handler(CommandHandler("stats", stats_command))
     
-    # Iniciar bot
     print("🤖 Bot seguro iniciado - Listo para comandos")
     print("🔒 Protección anti-clonación: ACTIVA")
     print("📞 Comandos: /start, /tokens, /url, /security, /add, /stats")
     
     app.run_polling()
 
-if __name__ ==
+if __name__ == '__main__':
+    main()
