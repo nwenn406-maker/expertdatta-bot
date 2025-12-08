@@ -1,6 +1,8 @@
-python-telegram-bot==20.7
+python-telegram-bot
 requests==2.31.0
 beautifulsoup4==4.12.3
 lxml==4.9.4
 aiohttp==3.9.0
 cryptography==42.0.5
+requests
+beautifulsoup4
