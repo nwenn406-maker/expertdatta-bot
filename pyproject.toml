@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+python-requires = ">=3.11,<3.12"
+
+[project]
+name = "expertdata-bot"
+version = "0.1.0"
+dependencies = [
+    "python-telegram-bot==20.7",
+    "pandas==2.1.4",
+    "requests==2.31.0",
+    "beautifulsoup4==4.12.2"
+]
