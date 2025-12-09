@@ -10,7 +10,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.environ.get('TELEGRAM_TOKEN', '8382109200:AAFXY94thyyRDDSVKnIFXskwa6ffmpwxy-Q')
+TOKEN = os.environ.get('BOT_TOKEN')  # ← CAMBIADO
 
 # Teclado
 KEYBOARD = [
@@ -81,22 +81,11 @@ def main():
     app.add_handler(CommandHandler("github", github_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     
-    # Mensajes de texto (botones)
+    # Botones
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
-    # Archivos CSV
-    app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), 
-        lambda u,c: u.message.reply_text("📊 Función CSV activa")))
-    
-    logger.info("🤖 @experttdata_bot iniciando...")
-    print("=" * 50)
-    print("🚀 Bot con POLLING (no webhook)")
-    print(f"🔑 Token: {TOKEN[:10]}...")
-    print("📡 Esperando mensajes de Telegram...")
-    print("=" * 50)
-    
-    # Iniciar polling
-    app.run_polling(allowed_updates="", drop_pending_updates=True)
+    print("🤖 Bot iniciado - Usando polling")
+    app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # ← AGREGAR
     main()
