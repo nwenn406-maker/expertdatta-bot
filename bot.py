@@ -3,75 +3,78 @@ import csv
 import io
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Configurar
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.environ.get('TELEGRAM_TOKEN', '8382109200:AAFXY94thyyRDDSVKnIFXskwa6ffmpwxy-Q')
 
 # Teclado
-KEYBOARD = [["🌐 Render", "💻 GitHub"], ["📊 Analizar CSV", "📈 SQL"]]
+KEYBOARD = [["🌐 Render", "💻 GitHub"], ["📊 Analizar CSV", "ℹ️ Ayuda"]]
 REPLY_KEYBOARD = ReplyKeyboardMarkup(KEYBOARD, resize_keyboard=True)
 
 # Comandos
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text(
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text(
         "🚀 @experttdata_bot activo\n"
         "🌐 Render: https://render.com\n"
         "💻 GitHub: https://github.com",
         reply_markup=REPLY_KEYBOARD
     )
 
-def render(update: Update, context: CallbackContext):
-    update.message.reply_text("🌐 Render.com\n🔗 https://render.com")
+async def render(update: Update, context: CallbackContext):
+    await update.message.reply_text("🌐 Render.com\n🔗 https://render.com")
 
-def github(update: Update, context: CallbackContext):
-    update.message.reply_text("💻 GitHub\n🔗 https://github.com")
+async def github(update: Update, context: CallbackContext):
+    await update.message.reply_text("💻 GitHub\n🔗 https://github.com")
+
+async def help_cmd(update: Update, context: CallbackContext):
+    await update.message.reply_text("/start /render /github")
 
 # CSV
-def handle_csv(update: Update, context: CallbackContext):
+async def handle_csv(update: Update, context: CallbackContext):
     try:
-        file = update.message.document.get_file()
+        file = await update.message.document.get_file()
         file_bytes = io.BytesIO()
-        file.download(out=file_bytes)
+        await file.download_to_memory(file_bytes)
         file_bytes.seek(0)
         
         content = file_bytes.read().decode('utf-8')
         reader = csv.reader(io.StringIO(content))
         rows = list(reader)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"📊 CSV: {len(rows)-1} filas, {len(rows[0])} columnas"
         )
     except:
-        update.message.reply_text("❌ Error con CSV")
+        await update.message.reply_text("❌ Error con CSV")
 
 # Mensajes
-def handle_text(update: Update, context: CallbackContext):
+async def handle_text(update: Update, context: CallbackContext):
     text = update.message.text
     if text == "🌐 Render":
-        render(update, context)
+        await render(update, context)
     elif text == "💻 GitHub":
-        github(update, context)
+        await github(update, context)
     elif text == "📊 Analizar CSV":
-        update.message.reply_text("📎 Envía un archivo .csv")
-    elif text == "📈 SQL":
-        update.message.reply_text("SELECT * FROM data;")
+        await update.message.reply_text("📎 Envía un archivo .csv")
+    elif text == "ℹ️ Ayuda":
+        await help_cmd(update, context)
 
 # Principal
 def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    app = Application.builder().token(TOKEN).build()
     
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("render", render))
-    dp.add_handler(CommandHandler("github", github))
-    dp.add_handler(MessageHandler(Filters.document.file_extension("csv"), handle_csv))
-    dp.add_handler(MessageHandler(Filters.text, handle_text))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("render", render))
+    app.add_handler(CommandHandler("github", github))
+    app.add_handler(CommandHandler("help", help_cmd))
+    
+    app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), handle_csv))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     print("🤖 Bot iniciado")
-    updater.start_polling()
-    updater.idle()
+    app.run_polling()
 
 if __name__ == '__main__':
     main()
