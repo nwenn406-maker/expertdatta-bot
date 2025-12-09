@@ -1,76 +1,102 @@
 import os
-import pandas as pd
-import io
+import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+
+# Configurar
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN', '8382109200:AAFXY94thyyRDDSVKnIFXskwa6ffmpwxy-Q')
 
+# Teclado
 KEYBOARD = [
+    ["🌐 Render", "💻 GitHub"],
     ["📊 Analizar CSV", "📈 Ejemplo SQL"],
-    ["🧮 Calculadora", "ℹ️ Ayuda"],
-    ["🌐 Render", "💻 GitHub"]
+    ["🧮 Calculadora", "ℹ️ Ayuda"]
 ]
 REPLY_KEYBOARD = ReplyKeyboardMarkup(KEYBOARD, resize_keyboard=True)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== COMANDOS =====
+async def start(update: Update, context):
+    """Maneja /start"""
+    user = update.effective_user
     await update.message.reply_text(
-        "🖥️ *Hola, soy tu DataBot*\n\n"
-        "📊 **Analizar CSV**: Envíame .csv\n"
-        "📈 **Ejemplo SQL**: Consultas ejemplo\n"
-        "🧮 **Calculadora**: Operaciones\n"
-        "🌐 **Render**: https://render.com\n"
-        "💻 **GitHub**: https://github.com",
+        f"👋 Hola {user.first_name}!\n\n"
+        "🚀 *@experttdata_bot - Expert Data Assistant*\n\n"
+        "✅ *Servicios conectados:*\n"
+        "• 🌐 **Render**: https://render.com\n"
+        "• 💻 **GitHub**: https://github.com\n\n"
+        "🔧 *Usa los botones:*",
         parse_mode='Markdown',
         reply_markup=REPLY_KEYBOARD
     )
 
-async def handle_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        file = await update.message.document.get_file()
-        file_bytes = io.BytesIO()
-        await file.download_to_memory(file_bytes)
-        file_bytes.seek(0)
-        
-        df = pd.read_csv(file_bytes)
-        
-        response = (
-            f"📊 *CSV Analizado*\n\n"
-            f"• Filas: {df.shape[0]}\n"
-            f"• Columnas: {df.shape[1]}\n"
-            f"• Memoria: {df.memory_usage().sum() / 1024:.1f} KB\n\n"
-            f"**Columnas:** {', '.join(df.columns.tolist()[:3])}"
-        )
-        
-        await update.message.reply_text(response, parse_mode='Markdown')
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)[:100]}")
+async def render_cmd(update: Update, context):
+    await update.message.reply_text(
+        "🌐 *Render.com*\nPlataforma de hosting\n🔗 https://render.com",
+        parse_mode='Markdown'
+    )
 
-async def render_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🌐 https://render.com")
+async def github_cmd(update: Update, context):
+    await update.message.reply_text(
+        "💻 *GitHub*\nControl de versiones\n🔗 https://github.com",
+        parse_mode='Markdown'
+    )
 
-async def github_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💻 https://github.com")
+async def help_cmd(update: Update, context):
+    await update.message.reply_text(
+        "📖 *Comandos:* /start, /render, /github, /help",
+        parse_mode='Markdown'
+    )
 
-async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== MANEJADOR DE BOTONES =====
+async def handle_buttons(update: Update, context):
     text = update.message.text
-    if text == "📊 Analizar CSV":
-        await update.message.reply_text("📎 Envía .csv")
-    elif text == "🌐 Render":
-        await render_info(update, context)
+    
+    if text == "🌐 Render":
+        await render_cmd(update, context)
     elif text == "💻 GitHub":
-        await github_info(update, context)
+        await github_cmd(update, context)
+    elif text == "📊 Analizar CSV":
+        await update.message.reply_text("📎 Envía un archivo .csv", parse_mode='Markdown')
+    elif text == "📈 Ejemplo SQL":
+        await update.message.reply_text("```sql\nSELECT * FROM data;\n```", parse_mode='Markdown')
+    elif text == "🧮 Calculadora":
+        await update.message.reply_text("🔢 Escribe: 2+2, 3*4, sqrt(16)", parse_mode='Markdown')
+    elif text == "ℹ️ Ayuda":
+        await help_cmd(update, context)
 
+# ===== PRINCIPAL =====
 def main():
+    """Inicia el bot con polling"""
     app = Application.builder().token(TOKEN).build()
     
+    # Comandos
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), handle_csv))
+    app.add_handler(CommandHandler("render", render_cmd))
+    app.add_handler(CommandHandler("github", github_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+    
+    # Mensajes de texto (botones)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
-    print("🤖 Bot con pandas iniciado")
-    app.run_polling()
+    # Archivos CSV
+    app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), 
+        lambda u,c: u.message.reply_text("📊 Función CSV activa")))
+    
+    logger.info("🤖 @experttdata_bot iniciando...")
+    print("=" * 50)
+    print("🚀 Bot con POLLING (no webhook)")
+    print(f"🔑 Token: {TOKEN[:10]}...")
+    print("📡 Esperando mensajes de Telegram...")
+    print("=" * 50)
+    
+    # Iniciar polling
+    app.run_polling(allowed_updates="", drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
