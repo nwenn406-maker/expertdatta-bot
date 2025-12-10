@@ -10,10 +10,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ===== OBTENER TOKEN =====
+# 1. Intenta desde variable de entorno
 TOKEN = os.environ.get('BOT_TOKEN')
+
+# 2. Si no está, intenta desde archivo secreto
 if not TOKEN:
-    print("❌ ERROR: BOT_TOKEN no está definido")
+    try:
+        with open('/etc/secrets/bot_token.txt', 'r') as f:
+            TOKEN = f.read().strip()
+            print("✅ Token leído desde archivo secreto")
+    except FileNotFoundError:
+        print("❌ ERROR: No se encontró token en variable BOT_TOKEN ni en /etc/secrets/bot_token.txt")
+        exit(1)
+
+# 3. Validar que el token no esté truncado
+if len(TOKEN) < 45:
+    print(f"❌ ERROR: Token parece truncado (solo {len(TOKEN)} chars): {TOKEN[:20]}...")
     exit(1)
+
+print(f"✅ Token cargado ({len(TOKEN)} caracteres)")
 
 # Teclado
 KEYBOARD = [
