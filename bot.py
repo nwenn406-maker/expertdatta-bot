@@ -1,9 +1,9 @@
-import os
+ import os
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Configurar
+# Configurar logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -11,22 +11,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ===== OBTENER TOKEN =====
-# 1. Intenta desde variable de entorno
-TOKEN = os.environ.get('BOT_TOKEN')
+# 1. Intenta desde variable de entorno (Railway usa TELEGRAM_TOKEN)
+TOKEN = os.environ.get('TELEGRAM_TOKEN')  # <-- CAMBIÉ BOT_TOKEN por TELEGRAM_TOKEN
 
-# 2. Si no está, intenta desde archivo secreto
+# 2. Si no está, usa fallback
 if not TOKEN:
-    try:
-        with open('/etc/secrets/bot_token.txt', 'r') as f:
-            TOKEN = f.read().strip()
-            print("✅ Token leído desde archivo secreto")
-    except FileNotFoundError:
-        print("❌ ERROR: No se encontró token en variable BOT_TOKEN ni en /etc/secrets/bot_token.txt")
-        exit(1)
-
-# 3. Validar que el token no esté truncado
-if len(TOKEN) < 45:
-    print(f"❌ ERROR: Token parece truncado (solo {len(TOKEN)} chars): {TOKEN[:20]}...")
+    TOKEN = os.environ.get('BOT_TOKEN')
+    
+if not TOKEN:
+    print("❌ ERROR: No se encontró TELEGRAM_TOKEN en variables de entorno")
     exit(1)
 
 print(f"✅ Token cargado ({len(TOKEN)} caracteres)")
@@ -40,7 +33,7 @@ KEYBOARD = [
 REPLY_KEYBOARD = ReplyKeyboardMarkup(KEYBOARD, resize_keyboard=True)
 
 # ===== COMANDOS =====
-async def start(update: Update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja /start"""
     user = update.effective_user
     await update.message.reply_text(
@@ -54,26 +47,26 @@ async def start(update: Update, context):
         reply_markup=REPLY_KEYBOARD
     )
 
-async def render_cmd(update: Update, context):
+async def render_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🌐 *Render.com*\nPlataforma de hosting\n🔗 https://render.com",
         parse_mode='Markdown'
     )
 
-async def github_cmd(update: Update, context):
+async def github_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💻 *GitHub*\nControl de versiones\n🔗 https://github.com",
         parse_mode='Markdown'
     )
 
-async def help_cmd(update: Update, context):
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 *Comandos:* /start, /render, /github, /help",
         parse_mode='Markdown'
     )
 
 # ===== MANEJADOR DE BOTONES =====
-async def handle_buttons(update: Update, context):
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     
     if text == "🌐 Render":
