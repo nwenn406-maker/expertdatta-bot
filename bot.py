@@ -1,4 +1,11 @@
+#!/usr/bin/env python3
+"""
+ExpertDataBot - Clon de @ExpertDatabot
+Comandos: /start, /myid, /url
+"""
+
 import os
+import sys
 import sqlite3
 import logging
 from datetime import datetime
@@ -6,158 +13,189 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ========== CONFIGURACIÓN ==========
-# ⚠️ Token directamente en código (solo para pruebas)
+# TOKEN FIJO PARA PRUEBAS (luego muévelo a variables)
 TOKEN = "8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q"
 PORT = 8080
 
-print("=" * 50)
-print("🚀 EXPERTDATABOT INICIANDO")
-print("=" * 50)
-print(f"🔑 Token: {TOKEN[:20]}...")
-print(f"🐍 Python: {os.sys.version[:20]}...")
+# ========== DIAGNÓSTICO INICIAL ==========
+print("=" * 60)
+print("🤖 EXPERTDATABOT - DIAGNÓSTICO")
+print("=" * 60)
+
+# 1. Verificar Python y imports
+print(f"🐍 Python: {sys.version.split()[0]}")
+
+try:
+    import telegram
+    print(f"📦 python-telegram-bot: {telegram.__version__}")
+    
+    # Verificar que NO estamos usando Updater
+    try:
+        from telegram.ext import Updater
+        print("❌ PELIGRO: 'Updater' está disponible")
+        print("   Tu código probablemente usa Updater")
+        print("   REEMPLÁZALO por 'Application'")
+    except ImportError:
+        print("✅ Correcto: 'Updater' NO disponible")
+        
+    from telegram.ext import Application
+    print("✅ 'Application' disponible")
+    
+except ImportError as e:
+    print(f"❌ Error import: {e}")
+    print("   Ejecuta: pip install python-telegram-bot==20.7")
+    sys.exit(1)
+
+print("=" * 60)
 
 # Configurar logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     handlers=[
-        logging.StreamHandler(),  # Para ver logs en Railway
-        logging.FileHandler('bot.log')  # Para guardar logs
+        logging.StreamHandler(),
+        logging.FileHandler('expertbot.log')
     ]
 )
 logger = logging.getLogger(__name__)
 
 # ========== BASE DE DATOS ==========
-def init_db():
-    """Inicializar base de datos"""
+def init_database():
+    """Crear base de datos SQLite"""
     try:
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS users
-                     (user_id INTEGER PRIMARY KEY,
-                      username TEXT,
-                      first_name TEXT,
-                      join_date TEXT)''')
+        conn = sqlite3.connect('expert_data.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE,
+                username TEXT,
+                first_name TEXT,
+                join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         conn.commit()
         conn.close()
-        logger.info("✅ Base de datos lista")
+        print("✅ Base de datos creada: expert_data.db")
         return True
     except Exception as e:
-        logger.error(f"❌ Error BD: {e}")
+        print(f"❌ Error BD: {e}")
         return False
 
 # ========== COMANDOS ==========
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /start"""
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manejar /start"""
     try:
         user = update.effective_user
-        logger.info(f"Usuario /start: {user.id} - {user.first_name}")
         
         # Guardar en BD
-        conn = sqlite3.connect('bot_data.db')
-        c = conn.cursor()
-        c.execute('INSERT OR IGNORE INTO users VALUES (?, ?, ?, ?)',
-                  (user.id, user.username or "", user.first_name or "",
-                   datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn = sqlite3.connect('expert_data.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR IGNORE INTO users (user_id, username, first_name)
+            VALUES (?, ?, ?)
+        ''', (user.id, user.username, user.first_name))
         conn.commit()
         conn.close()
         
-        await update.message.reply_text(
-            f"🤖 *ExpertDataBot*\n\n"
+        # Mensaje de respuesta
+        response = (
+            f"✅ *ExpertDataBot Activado*\n\n"
             f"👋 Hola {user.first_name or 'Usuario'}\n"
-            f"🆔 ID: `{user.id}`\n\n"
-            f"📋 *Comandos:*\n"
-            f"/start - Iniciar\n"
-            f"/myid - Ver ID\n"
-            f"/url - Descargar DB\n\n"
-            f"⚡ Railway",
-            parse_mode='Markdown'
+            f"🆔 Tu ID: `{user.id}`\n\n"
+            f"📋 *Comandos disponibles:*\n"
+            f"• /start - Iniciar bot\n"
+            f"• /myid - Ver tu ID\n"
+            f"• /url - Descargar base de datos\n\n"
+            f"⚡ _Versión 2.0 - Railway Hosting_"
         )
-        return True
+        
+        await update.message.reply_text(response, parse_mode='Markdown')
+        print(f"✅ /start respondido a {user.id}")
+        
     except Exception as e:
-        logger.error(f"Error /start: {e}")
-        return False
+        print(f"❌ Error en /start: {e}")
+        await update.message.reply_text("❌ Error interno")
 
-async def myid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /myid"""
+async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manejar /myid"""
     try:
         user = update.effective_user
-        await update.message.reply_text(
-            f"🆔 *TU ID:* `{user.id}`\n"
-            f"👤 *Nombre:* {user.first_name or 'N/A'}\n"
-            f"📛 *Usuario:* @{user.username or 'N/A'}\n\n"
-            f"⚠️ Guarda este ID",
-            parse_mode='Markdown'
+        
+        response = (
+            f"📋 *INFORMACIÓN DE USUARIO*\n\n"
+            f"🆔 *ID:* `{user.id}`\n"
+            f"👤 *Nombre:* {user.first_name or 'No disponible'}\n"
+            f"📛 *Usuario:* @{user.username or 'No disponible'}\n\n"
+            f"⚠️ *Este ID es único e intransferible*"
         )
-        return True
+        
+        await update.message.reply_text(response, parse_mode='Markdown')
+        print(f"✅ /myid respondido a {user.id}")
+        
     except Exception as e:
-        logger.error(f"Error /myid: {e}")
-        return False
+        print(f"❌ Error en /myid: {e}")
+        await update.message.reply_text("❌ Error interno")
 
-async def url_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /url"""
+async def cmd_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manejar /url"""
     try:
-        # Asegurar que existe la BD
-        init_db()
+        # Asegurar que existe el archivo
+        init_database()
         
-        filename = f"expert_db_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        filename = f"expert_data_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
         
-        with open('bot_data.db', 'rb') as f:
+        with open('expert_data.db', 'rb') as file:
             await update.message.reply_document(
-                document=f,
+                document=file,
                 filename=filename,
-                caption=f"📦 Backup: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                caption=f"📦 Backup de datos | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             )
-        logger.info(f"✅ DB enviada a {update.effective_user.id}")
-        return True
+        
+        print(f"✅ /url enviado a {update.effective_user.id}")
+        
     except Exception as e:
-        logger.error(f"❌ Error /url: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-        return False
+        print(f"❌ Error en /url: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)[:100]}")
 
 # ========== INICIAR BOT ==========
 def main():
-    """Función principal"""
-    logger.info("=" * 50)
-    logger.info("🚀 INICIANDO BOT EXPERTDATA")
-    logger.info("=" * 50)
+    """Función principal - VERSIÓN 20.x"""
+    print("\n" + "=" * 60)
+    print("🚀 INICIANDO BOT EXPERTDATA")
+    print("=" * 60)
     
     # 1. Inicializar BD
-    if not init_db():
-        logger.error("❌ No se pudo inicializar BD")
+    print("1. Inicializando base de datos...")
+    if not init_database():
+        print("❌ No se pudo crear BD")
         return
     
-    # 2. Verificar importaciones
+    # 2. Construir aplicación (NUEVA FORMA)
+    print("2. Construyendo Application...")
     try:
-        # Forzar import para verificar
-        from telegram import __version__ as tg_version
-        logger.info(f"📦 python-telegram-bot: {tg_version}")
-    except ImportError as e:
-        logger.error(f"❌ No se puede importar telegram: {e}")
-        logger.error("   Verifica requirements.txt: python-telegram-bot==20.7")
-        return
-    
-    # 3. Crear aplicación
-    try:
-        logger.info("🔄 Creando Application...")
-        app = Application.builder().token(TOKEN).build()
-        logger.info("✅ Application creada")
+        # ESTA ES LA PARTE CLAVE - NO USAR Updater
+        application = Application.builder().token(TOKEN).build()
+        print("   ✅ Application construida")
         
-        # 4. Añadir comandos
-        app.add_handler(CommandHandler("start", start_cmd))
-        app.add_handler(CommandHandler("myid", myid_cmd))
-        app.add_handler(CommandHandler("url", url_cmd))
-        logger.info("✅ Comandos configurados")
+        # 3. Registrar comandos
+        print("3. Registrando comandos...")
+        application.add_handler(CommandHandler("start", cmd_start))
+        application.add_handler(CommandHandler("myid", cmd_myid))
+        application.add_handler(CommandHandler("url", cmd_url))
+        print("   ✅ Comandos registrados")
         
-        # 5. Verificar Railway
+        # 4. Verificar modo (Railway o local)
+        print("4. Configurando modo de ejecución...")
         railway_url = os.environ.get("RAILWAY_STATIC_URL", "")
         
-        if railway_url:
-            # Modo webhook
-            logger.info(f"🌐 Webhook URL: {railway_url}")
-            logger.info(f"🔌 Puerto: {PORT}")
+        if railway_url and railway_url.startswith("http"):
+            # Modo Railway con webhook
+            print(f"   🌐 Modo Railway: {railway_url}")
             
-            app.run_webhook(
+            application.run_webhook(
                 listen="0.0.0.0",
                 port=PORT,
                 url_path=TOKEN,
@@ -166,22 +204,42 @@ def main():
                 allowed_updates=Update.ALL_TYPES
             )
         else:
-            # Modo polling
-            logger.info("🔍 Usando modo polling...")
-            app.run_polling(
+            # Modo local con polling
+            print("   🔍 Modo local (polling)")
+            
+            application.run_polling(
                 drop_pending_updates=True,
                 allowed_updates=Update.ALL_TYPES,
                 poll_interval=1.0,
                 timeout=30
             )
-            
+        
+        print("✅ Bot iniciado correctamente")
+        
     except Exception as e:
-        logger.error(f"❌ ERROR CRÍTICO: {type(e).__name__}")
-        logger.error(f"📄 Detalle: {e}")
-        logger.error("\n🔧 SOLUCIÓN:")
-        logger.error("1. Verifica el token")
-        logger.error("2. requirements.txt debe tener: python-telegram-bot==20.7")
-        logger.error("3. No uses 'Updater' en el código")
+        print(f"\n❌ ERROR CRÍTICO AL INICIAR:")
+        print(f"   Tipo: {type(e).__name__}")
+        print(f"   Mensaje: {str(e)}")
+        
+        # Diagnóstico específico
+        if "Updater" in str(e):
+            print("\n🔴 PROBLEMA IDENTIFICADO:")
+            print("   Tu código usa 'Updater' que es obsoleto.")
+            print("   REEMPLAZA en tu código:")
+            print("   - 'Updater' → 'Application'")
+            print("   - 'updater.start_polling()' → 'app.run_polling()'")
+            print("   - 'updater.idle()' → (eliminar)")
+            
+        elif "token" in str(e).lower() or "401" in str(e):
+            print("\n🔴 PROBLEMA CON TOKEN:")
+            print("   Token inválido o expirado.")
+            print("   Crea nuevo bot con @BotFather")
+            
+        elif "import" in str(e).lower():
+            print("\n🔴 PROBLEMA CON INSTALACIÓN:")
+            print("   requirements.txt debe tener:")
+            print("   python-telegram-bot==20.7")
 
+# ========== EJECUCIÓN ==========
 if __name__ == "__main__":
     main()
