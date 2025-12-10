@@ -10,7 +10,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.environ.get('BOT_TOKEN')  # ← CAMBIADO
+TOKEN = os.environ.get('BOT_TOKEN')
+if not TOKEN:
+    print("❌ ERROR: BOT_TOKEN no está definido")
+    exit(1)
 
 # Teclado
 KEYBOARD = [
@@ -81,11 +84,12 @@ def main():
     app.add_handler(CommandHandler("github", github_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     
-    # Botones
+    # Handler para botones (mensajes de texto)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
-    print("🤖 Bot iniciado - Usando polling")
+    # Iniciar el bot
+    print("🤖 Bot iniciando...")
     app.run_polling()
 
-if __name__ == '__main__':  # ← AGREGAR
+if __name__ == '__main__':
     main()
