@@ -25,7 +25,7 @@ import random
 # CONFIGURACIÓN CRÍTICA
 # ======================
 TOKEN = os.getenv('BOT_TOKEN', '8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q')
-OWNER_ID = int(os.getenv('OWNER_ID', '8382109200'))
+OWNER_ID = int(os.getenv('OWNER_ID', '7767981731'))
 PORT = int(os.getenv('PORT', 8080))
 
 # Configurar logging
