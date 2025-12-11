@@ -1132,3 +1132,92 @@ def main():
 
 if __name__ == '__main__':
     main()
+    def main():
+    print("=" * 50)
+    print(f"🤖 OSINT-BOT INICIANDO v3.0")
+    print("=" * 50)
+    
+    if not TOKEN or TOKEN == 'TU_TOKEN':
+        print("❌ ERROR: Configura BOT_TOKEN en Railway Variables")
+        print("ℹ️ Ve a Railway Dashboard > Variables de entorno")
+        print("ℹ️ Agrega BOT_TOKEN con tu token de Telegram")
+        return
+    
+    print(f"✅ Token: {TOKEN[:15]}...")
+    print(f"✅ Owner ID: {OWNER_ID}")
+    print(f"✅ Puerto: {PORT}")
+    print(f"✅ Entorno: Railway")
+    print("=" * 50)
+    
+    try:
+        # Crear aplicación - ESTA ES LA LÍNEA QUE FALTABA COMPLETAR
+        application = Application.builder().token(TOKEN).build()
+        
+        # Inicializar bot
+        bot = OSINTBot()
+        
+        # Agregar handlers
+        application.add_handler(CommandHandler("start", bot.start))
+        application.add_handler(CommandHandler("help", bot.help_command))
+        application.add_handler(CommandHandler("ip", bot.ip_lookup))
+        application.add_handler(CommandHandler("domain", bot.domain_lookup))
+        application.add_handler(CommandHandler("email", bot.email_lookup))
+        application.add_handler(CommandHandler("phone", bot.phone_lookup))
+        application.add_handler(CommandHandler("username", bot.username_lookup))
+        application.add_handler(CommandHandler("mass_extract", bot.mass_extract_command))
+        application.add_handler(CommandHandler("find_credentials", bot.find_credentials_command))
+        application.add_handler(CommandHandler("generate_pdf", bot.generate_pdf_command))
+        application.add_handler(CommandHandler("export_all", bot.export_all_command))
+        application.add_handler(CommandHandler("search_db", bot.search_db_command))
+        application.add_handler(CommandHandler("admin", bot.admin_panel_command))
+        application.add_handler(CommandHandler("stats", bot.stats_command))
+        application.add_handler(CommandHandler("about", bot.about_command))
+        application.add_handler(CommandHandler("tools", bot.tools_command))
+        application.add_handler(CommandHandler("privacy", bot.privacy_command))
+        application.add_handler(CallbackQueryHandler(bot.button_handler))
+        
+        # Iniciar bot
+        print("🚀 Bot iniciado correctamente")
+        print(f"👑 Owner: {OWNER_ID}")
+        print(f"🌐 Puerto: {PORT}")
+        print("=" * 50)
+        print("📱 Busca tu bot en Telegram y usa /start")
+        
+        # Para Railway, usar webhook o polling
+        if os.getenv('RAILWAY_ENVIRONMENT'):
+            # Webhook para Railway
+            webhook_url = f"https://{os.getenv('RAILWAY_STATIC_URL', '')}.railway.app"
+            if webhook_url == "https://.railway.app":
+                # Si no hay URL estática, usar polling en Railway
+                print("⚠️ Usando polling mode en Railway")
+                application.run_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=Update.ALL_TYPES
+                )
+            else:
+                # Configurar webhook
+                print(f"🌐 Webhook URL: {webhook_url}")
+                application.run_webhook(
+                    listen="0.0.0.0",
+                    port=PORT,
+                    url_path=TOKEN,
+                    webhook_url=f"{webhook_url}/{TOKEN}",
+                    drop_pending_updates=True
+                )
+        else:
+            # Polling para desarrollo local
+            print("🔧 Modo desarrollo: Polling activado")
+            application.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES
+            )
+            
+    except Exception as e:
+        logger.error(f"Error fatal: {e}")
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+if __name__ == '__main__':
+    main()
