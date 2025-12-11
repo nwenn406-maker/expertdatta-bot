@@ -2,13 +2,15 @@ import os
 import logging
 import requests
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
-from PIL import Image
 import io
+import datetime
 from urllib.parse import urlparse
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from PIL import Image
 import dns.resolver
 import whois
+import psutil
 
 # Configuración
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ============= COMANDOS PRINCIPALES =============
 
-async def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manejador del comando /start"""
     user = update.effective_user
     welcome_text = f"""
@@ -66,7 +68,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     
     await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=reply_markup)
 
-async def help_command(update: Update, context: CallbackContext) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manejador del comando /help"""
     help_text = """
 🕵️‍♂️ *OSINT Bot - Ayuda Completa*
@@ -100,9 +102,7 @@ Este bot debe usarse solo para:
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# ============= FUNCIONALIDADES OSINT =============
-
-async def ip_lookup(update: Update, context: CallbackContext) -> None:
+async def ip_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Análisis de dirección IP"""
     if not context.args:
         await update.message.reply_text("⚠️ Uso: `/ip 8.8.8.8`", parse_mode='Markdown')
@@ -112,7 +112,6 @@ async def ip_lookup(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(f"🔍 Analizando IP: `{ip}`...", parse_mode='Markdown')
     
     try:
-        # Usar ip-api.com (gratuito)
         response = requests.get(f"http://ip-api.com/json/{ip}?fields=66846719&lang=es")
         data = response.json()
         
@@ -129,7 +128,6 @@ async def ip_lookup(update: Update, context: CallbackContext) -> None:
 🌍 *Continente:* {data.get('continent', 'N/A')}
             """
             
-            # Añadir mapa si hay coordenadas
             if data.get('lat') and data.get('lon'):
                 map_url = f"https://maps.google.com/?q={data['lat']},{data['lon']}"
                 info_text += f"\n🗺️ [Ver en Google Maps]({map_url})"
@@ -143,7 +141,7 @@ async def ip_lookup(update: Update, context: CallbackContext) -> None:
         logger.error(f"Error en ip_lookup: {e}")
         await update.message.reply_text("❌ Error al consultar la IP")
 
-async def domain_analysis(update: Update, context: CallbackContext) -> None:
+async def domain_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Análisis de dominio"""
     if not context.args:
         await update.message.reply_text("⚠️ Uso: `/domain google.com`", parse_mode='Markdown')
@@ -155,7 +153,6 @@ async def domain_analysis(update: Update, context: CallbackContext) -> None:
     try:
         info_text = f"🌐 *Análisis de Dominio:* `{domain}`\n\n"
         
-        # 1. Resolución DNS
         try:
             answers = dns.resolver.resolve(domain, 'A')
             ips = [str(rdata) for rdata in answers]
@@ -163,7 +160,6 @@ async def domain_analysis(update: Update, context: CallbackContext) -> None:
         except:
             info_text += "📡 *IPs:* No resuelto\n"
         
-        # 2. Consulta WHOIS básica
         try:
             w = whois.whois(domain)
             info_text += f"📅 *Creado:* {w.creation_date if w.creation_date else 'N/A'}\n"
@@ -173,13 +169,11 @@ async def domain_analysis(update: Update, context: CallbackContext) -> None:
         except:
             info_text += "ℹ️ *WHOIS:* Información limitada\n"
         
-        # 3. Headers HTTP
         try:
             headers_response = requests.get(f"https://{domain}", timeout=5)
             server = headers_response.headers.get('Server', 'N/A')
             info_text += f"🖥️ *Servidor:* {server}\n"
             
-            # Verificar HTTPS
             if headers_response.url.startswith('https'):
                 info_text += "🔐 *HTTPS:* ✅ Activo\n"
             else:
@@ -188,7 +182,6 @@ async def domain_analysis(update: Update, context: CallbackContext) -> None:
         except:
             info_text += "⚠️ *HTTP:* No accesible\n"
         
-        # 4. Información adicional
         info_text += f"\n🔗 *URL completa:* https://{domain}"
         
         await update.message.reply_text(info_text, parse_mode='Markdown')
@@ -197,7 +190,7 @@ async def domain_analysis(update: Update, context: CallbackContext) -> None:
         logger.error(f"Error en domain_analysis: {e}")
         await update.message.reply_text("❌ Error al analizar el dominio")
 
-async def user_search(update: Update, context: CallbackContext) -> None:
+async def user_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Búsqueda de usuario en redes sociales"""
     if not context.args:
         await update.message.reply_text("⚠️ Uso: `/user nombreusuario`", parse_mode='Markdown')
@@ -206,7 +199,6 @@ async def user_search(update: Update, context: CallbackContext) -> None:
     username = context.args[0]
     await update.message.reply_text(f"👤 Buscando usuario: `{username}`...", parse_mode='Markdown')
     
-    # Lista de plataformas comunes
     platforms = [
         {"name": "GitHub", "url": f"https://github.com/{username}", "icon": "💻"},
         {"name": "Twitter", "url": f"https://twitter.com/{username}", "icon": "🐦"},
@@ -221,7 +213,6 @@ async def user_search(update: Update, context: CallbackContext) -> None:
     results_text = f"👤 *Búsqueda de Usuario:* @{username}\n\n"
     found_count = 0
     
-    # Verificar cada plataforma
     for platform in platforms:
         try:
             response = requests.head(platform["url"], timeout=3)
@@ -243,7 +234,7 @@ async def user_search(update: Update, context: CallbackContext) -> None:
     
     await update.message.reply_text(results_text, parse_mode='Markdown', reply_markup=reply_markup)
 
-async def exif_analysis(update: Update, context: CallbackContext) -> None:
+async def exif_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Solicitar imagen para análisis EXIF"""
     await update.message.reply_text(
         "📸 *Envía una imagen para analizar sus metadatos EXIF.*\n\n"
@@ -252,7 +243,7 @@ async def exif_analysis(update: Update, context: CallbackContext) -> None:
         parse_mode='Markdown'
     )
 
-async def handle_photo(update: Update, context: CallbackContext) -> None:
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manejador de imágenes para análisis EXIF"""
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
@@ -260,21 +251,16 @@ async def handle_photo(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("🔍 Analizando metadatos de la imagen...")
     
     try:
-        # Descargar imagen
         image_data = io.BytesIO()
         await file.download_to_memory(image_data)
         image_data.seek(0)
         
-        # Abrir imagen con PIL
         image = Image.open(image_data)
-        
-        # Obtener EXIF
         exif_data = image._getexif()
         
         if exif_data:
             info_text = "📸 *Metadatos EXIF encontrados:*\n\n"
             
-            # Mapear tags EXIF comunes
             exif_tags = {
                 271: "📷 Fabricante",
                 272: "📷 Modelo",
@@ -291,7 +277,6 @@ async def handle_photo(update: Update, context: CallbackContext) -> None:
                 if tag in exif_tags:
                     info_text += f"{exif_tags[tag]}: `{value}`\n"
             
-            # Información básica de imagen
             info_text += f"\n📐 *Dimensiones:* {image.width} × {image.height} px"
             info_text += f"\n🎨 *Formato:* {image.format}"
             info_text += f"\n💾 *Modo de color:* {image.mode}"
@@ -307,7 +292,7 @@ async def handle_photo(update: Update, context: CallbackContext) -> None:
         logger.error(f"Error en análisis EXIF: {e}")
         await update.message.reply_text("❌ Error al analizar la imagen")
 
-async def geo_locate(update: Update, context: CallbackContext) -> None:
+async def geo_locate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Geolocalización de IP o dominio"""
     if not context.args:
         await update.message.reply_text("⚠️ Uso: `/geo 8.8.8.8` o `/geo google.com`", parse_mode='Markdown')
@@ -317,7 +302,6 @@ async def geo_locate(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(f"📍 Geolocalizando: `{target}`...", parse_mode='Markdown')
     
     try:
-        # Si es dominio, obtener IP
         if '.' in target and not target[0].isdigit():
             try:
                 answers = dns.resolver.resolve(target, 'A')
@@ -327,7 +311,6 @@ async def geo_locate(update: Update, context: CallbackContext) -> None:
         else:
             ip = target
         
-        # Consultar geolocalización
         response = requests.get(f"http://ip-api.com/json/{ip}?fields=66846719&lang=es")
         data = response.json()
         
@@ -342,7 +325,6 @@ async def geo_locate(update: Update, context: CallbackContext) -> None:
 🗺️ *Coordenadas:* {data.get('lat', 'N/A')}, {data.get('lon', 'N/A')}
             """
             
-            # Añadir enlace a mapa
             if data.get('lat') and data.get('lon'):
                 map_url = f"https://www.google.com/maps?q={data['lat']},{data['lon']}"
                 keyboard = [[InlineKeyboardButton("🗺️ Ver en Google Maps", url=map_url)]]
@@ -359,12 +341,8 @@ async def geo_locate(update: Update, context: CallbackContext) -> None:
         logger.error(f"Error en geo_locate: {e}")
         await update.message.reply_text("❌ Error en geolocalización")
 
-async def bot_status(update: Update, context: CallbackContext) -> None:
+async def bot_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Estado del bot"""
-    import psutil
-    import datetime
-    
-    # Obtener información del sistema
     cpu_percent = psutil.cpu_percent()
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
@@ -390,7 +368,7 @@ async def bot_status(update: Update, context: CallbackContext) -> None:
     
     await update.message.reply_text(status_text, parse_mode='Markdown')
 
-async def report_issue(update: Update, context: CallbackContext) -> None:
+async def report_issue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Reportar un problema"""
     if not context.args:
         await update.message.reply_text("⚠️ Uso: `/report descripción del problema`", parse_mode='Markdown')
@@ -399,7 +377,6 @@ async def report_issue(update: Update, context: CallbackContext) -> None:
     report_text = ' '.join(context.args)
     user = update.effective_user
     
-    # Enviar al admin si está configurado
     if ADMIN_ID:
         admin_message = f"""
 🚨 *Nuevo Reporte:*
@@ -425,7 +402,7 @@ async def report_issue(update: Update, context: CallbackContext) -> None:
         parse_mode='Markdown'
     )
 
-async def button_handler(update: Update, context: CallbackContext) -> None:
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manejador de botones inline"""
     query = update.callback_query
     await query.answer()
@@ -479,7 +456,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     elif data == 'help':
         await help_command(update, context)
 
-async def error_handler(update: Update, context: CallbackContext) -> None:
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manejador de errores"""
     logger.error(f"Error: {context.error}")
     
@@ -492,14 +469,17 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
     except:
         pass
 
+def count_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Contador de comandos"""
+    if update.message and update.message.text and update.message.text.startswith('/'):
+        context.application.bot_data['command_count'] = context.application.bot_data.get('command_count', 0) + 1
+
 # ============= CONFIGURACIÓN PRINCIPAL =============
 
 def main() -> None:
     """Función principal"""
-    # Crear aplicación
     application = Application.builder().token(TOKEN).build()
     
-    # Guardar hora de inicio
     application.bot_data['start_time'] = datetime.datetime.now()
     application.bot_data['command_count'] = 0
     
@@ -511,7 +491,7 @@ def main() -> None:
     application.add_handler(CommandHandler("user", user_search))
     application.add_handler(CommandHandler("exif", exif_analysis))
     application.add_handler(CommandHandler("geo", geo_locate))
-    application.add_handler(CommandHandler("whois", domain_analysis))  # Alias
+    application.add_handler(CommandHandler("whois", domain_analysis))
     application.add_handler(CommandHandler("status", bot_status))
     application.add_handler(CommandHandler("report", report_issue))
     
@@ -521,20 +501,15 @@ def main() -> None:
     # Manejadores de mensajes
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     
+    # Contador de comandos
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, count_commands), group=1)
+    
     # Manejador de errores
     application.add_error_handler(error_handler)
-    
-    # Contador de comandos
-    def count_commands(update: Update, context: CallbackContext):
-        if update.message and update.message.text and update.message.text.startswith('/'):
-            context.application.bot_data['command_count'] = context.application.bot_data.get('command_count', 0) + 1
-    
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, count_commands), group=1)
     
     # Iniciar bot
     logger.info("🕵️‍♂️ Bot OSINT iniciado...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    import datetime
     main()
