@@ -1,3 +1,4 @@
+# Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -6,21 +7,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    libpq-dev \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar requirements e instalar dependencias Python
+# Copiar requirements primero para mejor caché
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la aplicación
+# Copiar el resto del código
 COPY . .
 
-# Crear usuario no-root (mejores prácticas de seguridad)
+# Usuario no-root (seguridad)
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Comando para iniciar el bot
-CMD ["python", "bot_final.py"]
+# Comando para ejecutar el bot
+CMD ["python", "bot.py"]
