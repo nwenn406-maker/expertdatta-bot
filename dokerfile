@@ -1,25 +1,11 @@
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependencias del sistema
-RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    linux-headers \
-    && pip install --upgrade pip
-
-# Copiar requirements
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Instalar dependencias de Python
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copiar código
 COPY . .
 
-# Puerto
-EXPOSE 8080
-
-# Comando de inicio
 CMD ["python", "bot.py"]
