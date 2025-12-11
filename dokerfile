@@ -1,23 +1,25 @@
-FROM python:3.11-slim
+FROM python:3.11-alpine
 
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias
-RUN apt-get update && apt-get install -y \
-    wget \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Instalar dependencias del sistema
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    linux-headers \
+    && pip install --upgrade pip
 
-# Copiar requirements primero para cache eficiente
+# Copiar requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la aplicación
+# Instalar dependencias de Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código
 COPY . .
 
-# Puerto expuesto
+# Puerto
 EXPOSE 8080
 
-# Comando para ejecutar
+# Comando de inicio
 CMD ["python", "bot.py"]
