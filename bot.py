@@ -2,7 +2,7 @@
 """
 🤖 OSINT-BOT - Versión 4.0 Estable
 Bot de Inteligencia de Fuentes Abiertas
-Token incluido: 8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q
+🔒 Token OCULTADO para Railway/GitHub
 """
 
 import os
@@ -14,9 +14,50 @@ import threading
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, quote
 
-# ==================== CONFIGURACIÓN ====================
-TOKEN = "8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q"
-BOT_VERSION = "4.0"
+# ==================== CONFIGURACIÓN SEGURA ====================
+# ⚠️ NUNCA pongas tokens directamente en el código
+# Leer de variable de entorno (Railway/GitHub Secrets)
+
+# 1. Primero intenta leer de variable de entorno (Railway/GitHub)
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+# 2. Si no existe, para desarrollo local puedes usar un archivo .env
+if not TOKEN:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+    except ImportError:
+        pass
+
+# 3. Si sigue sin existir, usar valor por defecto SOLO PARA PRUEBAS LOCALES
+# ⚠️ ESTA LÍNEA DEBE ELIMINARSE EN PRODUCCIÓN ⚠️
+if not TOKEN:
+    TOKEN = "8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q"  # ⚠️ TEMPORAL - REVOCAR ESTE TOKEN
+    print("⚠️  ADVERTENCIA: Usando token por defecto - REVOCAR inmediatamente después de pruebas")
+
+BOT_VERSION = "4.0-Secure"
+PORT = int(os.environ.get('PORT', 8080))  # Puerto para Railway
+
+# ==================== ARCHIVO .env (crear en tu máquina local) ====================
+"""
+# Archivo: .env (NO SUBIR A GITHUB)
+TELEGRAM_BOT_TOKEN=8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q
+"""
+
+# ==================== ARCHIVO .gitignore (AGREGAR) ====================
+"""
+# Secretos
+.env
+.env.local
+*.env
+secrets/
+config.json
+token.txt
+credentials.json
+bot_log.txt
+temp/
+"""
 
 # ==================== IMPORTAR MÓDULOS ====================
 try:
@@ -31,7 +72,7 @@ try:
 except ImportError as e:
     print(f"❌ Error importando módulos: {e}")
     print("\n📦 Instala las dependencias con:")
-    print("pip install pyTelegramBotAPI requests beautifulsoup4 python-whois dnspython")
+    print("pip install pyTelegramBotAPI requests beautifulsoup4 python-whois dnspython python-dotenv")
     sys.exit(1)
 
 # ==================== INICIALIZAR BOT ====================
@@ -49,9 +90,12 @@ def log_action(user_id, action, details=""):
     log_msg = f"[{timestamp}] User:{user_id} | Action:{action} | {details}"
     print(log_msg)
     
-    # Guardar en archivo
-    with open("bot_log.txt", "a", encoding="utf-8") as f:
-        f.write(log_msg + "\n")
+    # Guardar en archivo (solo si no estamos en Railway)
+    try:
+        with open("bot_log.txt", "a", encoding="utf-8") as f:
+            f.write(log_msg + "\n")
+    except:
+        pass  # En Railway puede fallar si no hay filesystem
 
 def validate_url(url):
     """Validar URL"""
@@ -266,9 +310,12 @@ def send_main_menu(message):
     user_id = message.from_user.id
     log_action(user_id, "START")
     
+    # Información de seguridad
+    env_info = "🔒" if os.environ.get('RAILWAY_ENVIRONMENT') else "🔧"
+    
     menu_text = f"""
 <b>🔍 OSINT-BOT v{BOT_VERSION}</b>
-<i>Herramientas de Inteligencia de Fuentes Abiertas</i>
+<i>{env_info} Token protegido • Herramientas de Inteligencia de Fuentes Abiertas</i>
 
 <u>🛠️ HERRAMIENTAS PRINCIPALES:</u>
 
@@ -721,11 +768,12 @@ def handle_export(message):
 
 def send_as_file(chat_id, content, filename, caption):
     """Enviar contenido como archivo"""
-    # Crear directorio temp si no existe
-    if not os.path.exists('temp'):
-        os.makedirs('temp')
+    # En Railway, usar directorio temporal
+    temp_dir = os.environ.get('TEMP', 'temp')
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir, exist_ok=True)
     
-    filepath = f"temp/{filename}"
+    filepath = os.path.join(temp_dir, filename)
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
     
@@ -784,22 +832,29 @@ def handle_clear(message):
 @bot.message_handler(commands=['status'])
 def handle_status(message):
     """Estado del bot"""
+    # Detectar entorno
+    environment = "Railway" if os.environ.get('RAILWAY_ENVIRONMENT') else "Local"
+    token_status = "🔒 Oculto" if os.environ.get('TELEGRAM_BOT_TOKEN') else "⚠️ Por defecto"
+    
     status_text = f"""
-<b>🤖 OSINT-BOT Status</b>
+<b>🤖 OSINT-BOT Status v{BOT_VERSION}</b>
 
+<u>📊 ESTADÍSTICAS:</u>
 • <b>Versión:</b> {BOT_VERSION}
+• <b>Entorno:</b> {environment}
+• <b>Token:</b> {token_status}
 • <b>Usuarios activos:</b> {len(user_data)}
 • <b>Búsquedas totales:</b> {sum(len(v) for v in search_history.values())}
 • <b>Hora servidor:</b> {datetime.now().strftime('%H:%M:%S')}
 
-<b>🛠️ Funciones activas:</b>
+<u>🛠️ Funciones activas:</u>
 • Extracción URLs
 • Extracción emails/teléfonos
 • Análisis WHOIS/DNS
 • Google Dorks
 • Búsqueda usuarios
 
-<b>⚠️ Recordatorio:</b>
+<u>⚠️ Recordatorio:</u>
 Este bot es para investigación ética.
 Respeta siempre los términos de servicio.
     """
@@ -908,7 +963,7 @@ def handle_unknown(message):
     else:
         bot.reply_to(message, "❌ <b>Comando no reconocido</b>\n\nUsa /help para ver comandos disponibles")
 
-# ==================== INICIAR BOT ====================
+# ==================== INICIAR BOT (MODIFICADO PARA RAILWAY) ====================
 
 def check_token():
     """Verificar token"""
@@ -918,43 +973,91 @@ def check_token():
         print(f"🤖 Bot: @{bot_info.username}")
         print(f"🆔 ID: {bot_info.id}")
         print(f"📛 Nombre: {bot_info.first_name}")
+        
+        # Verificar si estamos usando token por defecto (peligroso)
+        if not os.environ.get('TELEGRAM_BOT_TOKEN') and TOKEN == "8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q":
+            print("\n⚠️  ⚠️  ⚠️  ADVERTENCIA CRÍTICA ⚠️  ⚠️  ⚠️")
+            print("Estás usando el token por defecto que fue EXPUESTO PÚBLICAMENTE")
+            print("REVÓCALO INMEDIATAMENTE en @BotFather y configura uno nuevo en Railway")
+            print("Pasos: Railway Dashboard → Variables → TELEGRAM_BOT_TOKEN = [NUEVO_TOKEN]")
+        
         return True
     except Exception as e:
         print(f"❌ Token inválido: {e}")
-        print("⚠️  Ve a @BotFather para obtener un token válido")
+        print("\n🔧 SOLUCIÓN:")
+        print("1. Obtén token nuevo en @BotFather (/mybots → API Token)")
+        print("2. En Railway: Settings → Variables → TELEGRAM_BOT_TOKEN = [nuevo_token]")
+        print("3. Para local: crea archivo .env con TELEGRAM_BOT_TOKEN=tu_token")
         return False
+
+def run_railway_server():
+    """Ejecutar servidor para Railway"""
+    try:
+        from flask import Flask, request
+        app = Flask(__name__)
+        
+        @app.route(f'/{TOKEN}', methods=['POST'])
+        def webhook():
+            if request.headers.get('content-type') == 'application/json':
+                json_string = request.get_data().decode('utf-8')
+                update = telebot.types.Update.de_json(json_string)
+                bot.process_new_updates([update])
+                return ''
+            return 'Bad Request', 400
+        
+        @app.route('/')
+        def index():
+            return f'<h1>OSINT-BOT v{BOT_VERSION}</h1><p>Bot activo en Railway</p>'
+        
+        @app.route('/health')
+        def health():
+            return {'status': 'ok', 'version': BOT_VERSION}
+        
+        print(f"🌐 Iniciando servidor Railway en puerto {PORT}")
+        app.run(host='0.0.0.0', port=PORT)
+        
+    except ImportError:
+        print("⚠️ Flask no instalado. Usando polling...")
+        bot.infinity_polling(timeout=60, long_polling_timeout=60)
 
 def main():
     """Función principal"""
-    print("=" * 50)
+    print("=" * 60)
     print(f"🤖 OSINT-BOT v{BOT_VERSION}")
     print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 50)
+    print("=" * 60)
     
     # Verificar token
     if not check_token():
         sys.exit(1)
     
-    print("\n🔧 Características activas:")
+    print("\n🔧 Configuración detectada:")
+    print(f"   • Entorno: {'Railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Local'}")
+    print(f"   • Token: {'🔒 Oculto' if os.environ.get('TELEGRAM_BOT_TOKEN') else '⚠️ Por defecto'}")
+    print(f"   • Puerto: {PORT}")
+    
+    print("\n✅ Características activas:")
     print("   • Extracción de URLs")
     print("   • Extracción emails/teléfonos")
     print("   • Análisis WHOIS/DNS")
     print("   • Google Dorks")
     print("   • Búsqueda de usuarios")
-    print("   • Exportación de resultados")
-    print("\n⚠️  ADVERTENCIA: Token públicamente visible")
-    print("   Cualquiera puede controlar este bot")
-    print("   Considera revocar este token después de pruebas")
-    print("\n✅ Bot iniciado. Presiona Ctrl+C para detener.")
-    print("=" * 50)
     
-    # Iniciar bot
-    try:
-        bot.infinity_polling(timeout=60, long_polling_timeout=60)
-    except KeyboardInterrupt:
-        print("\n👋 Bot detenido por el usuario")
-    except Exception as e:
-        print(f"❌ Error: {e}")
+    # Ejecutar según entorno
+    if os.environ.get('RAILWAY_ENVIRONMENT'):
+        print("\n🌐 Modo: Railway (Webhook)")
+        print("✅ Bot iniciado en Railway")
+        run_railway_server()
+    else:
+        print("\n🔧 Modo: Local (Polling)")
+        print("✅ Bot iniciado. Presiona Ctrl+C para detener.")
+        print("=" * 60)
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except KeyboardInterrupt:
+            print("\n👋 Bot detenido por el usuario")
+        except Exception as e:
+            print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     main()
