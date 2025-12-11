@@ -1,430 +1,974 @@
+#!/usr/bin/env python3
+"""
+🤖 OSINT-BOT - Versión Autoinstalable 4.0
+Bot de Inteligencia de Fuentes Abiertas
+Características: Autoinstalación, múltiples herramientas, interfaz amigable
+"""
+
 import os
-import logging
-import sqlite3
+import sys
+import subprocess
+import platform
+import json
+import re
+import time
+import threading
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
-)
+from pathlib import Path
+from urllib.parse import urljoin, urlparse, quote
 
-# Configuración de logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# ==================== CONFIGURACIÓN ====================
+TOKEN = "8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q"
+BOT_VERSION = "4.0"
+ADMIN_ID = None  # Cambia por tu ID de Telegram
 
-# Token desde variables de entorno
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+# Dependencias requeridas
+REQUIREMENTS = [
+    "pyTelegramBotAPI==4.15.0",
+    "requests==2.31.0",
+    "beautifulsoup4==4.12.2",
+    "python-whois==0.9.3",
+    "dnspython==2.4.2",
+    "lxml==4.9.3",
+    "urllib3==2.0.7"
+]
 
-# Base de datos
-def init_database():
-    """Inicializa la base de datos SQLite"""
-    conn = sqlite3.connect('expert_data.db')
-    c = conn.cursor()
-    
-    # Tabla de usuarios
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            join_date TIMESTAMP,
-            queries_count INTEGER DEFAULT 0
-        )
-    ''')
-    
-    # Tabla de consultas
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS queries (
-            query_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            query_type TEXT,
-            query_data TEXT,
-            response_data TEXT,
-            timestamp TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print("✅ Base de datos lista")
+# ==================== AUTOINSTALACIÓN ====================
 
-def register_user(user_id, username, first_name, last_name):
-    """Registra un usuario en la base de datos"""
-    conn = sqlite3.connect('expert_data.db')
-    c = conn.cursor()
+def auto_install():
+    """Instala dependencias automáticamente"""
+    print("🔧 Iniciando autoinstalación...")
     
-    c.execute('''
-        INSERT OR IGNORE INTO users (user_id, username, first_name, last_name, join_date)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (user_id, username, first_name, last_name, datetime.now()))
+    # Verificar Python
+    if sys.version_info < (3, 7):
+        print("❌ Python 3.7+ requerido")
+        sys.exit(1)
     
-    conn.commit()
-    conn.close()
+    print(f"✅ Python {platform.python_version()}")
+    
+    # Actualizar pip
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "--quiet"])
+    except:
+        pass
+    
+    # Instalar dependencias
+    print("📦 Instalando paquetes...")
+    for req in REQUIREMENTS:
+        pkg = req.split('==')[0]
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", req, "--quiet"])
+            print(f"   ✅ {pkg}")
+        except:
+            print(f"   ⚠️  {pkg} (puede causar errores)")
+    
+    print("✅ Autoinstalación completada\n")
 
-# Comandos del bot
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /start - Menú principal"""
-    user = update.effective_user
-    
-    # Registrar usuario
-    register_user(
-        user.id,
-        user.username,
-        user.first_name,
-        user.last_name
-    )
-    
-    # Teclado inline
-    keyboard = [
-        [InlineKeyboardButton("📊 Consultar Datos", callback_data='query_data')],
-        [InlineKeyboardButton("📈 Estadísticas", callback_data='stats')],
-        [InlineKeyboardButton("❓ Ayuda", callback_data='help'),
-         InlineKeyboardButton("ℹ️ Información", callback_data='info')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    welcome_text = f"""
-👋 ¡Hola {user.first_name}!
+# Ejecutar autoinstalación
+if __name__ == "__main__":
+    auto_install()
 
-🤖 *Bienvenido a Expert Data Bot*
-Tu asistente especializado en análisis de datos.
+# ==================== IMPORTAR MÓDULOS ====================
+try:
+    import telebot
+    from telebot import types
+    import requests
+    from bs4 import BeautifulSoup
+    import whois
+    import dns.resolver
+    import concurrent.futures
+except ImportError as e:
+    print(f"❌ Error importando: {e}")
+    print("Ejecuta: pip install -r requirements.txt")
+    sys.exit(1)
 
-*Comandos disponibles:*
-/start - Menú principal
-/data - Consultar información
-/stats - Ver estadísticas
-/help - Ayuda y soporte
-/about - Información del bot
+# ==================== INICIALIZAR BOT ====================
+bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 
-Selecciona una opción del menú:
+# ==================== VARIABLES GLOBALES ====================
+user_data = {}
+search_history = {}
+
+# ==================== FUNCIONES UTILITARIAS ====================
+
+def log_action(user_id, action, details=""):
+    """Registrar acciones"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_msg = f"[{timestamp}] User:{user_id} | Action:{action} | {details}"
+    print(log_msg)
+    
+    # Guardar en archivo
+    with open("bot_log.txt", "a", encoding="utf-8") as f:
+        f.write(log_msg + "\n")
+
+def validate_url(url):
+    """Validar URL"""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
+
+def normalize_url(url):
+    """Normalizar URL"""
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    return url.rstrip('/')
+
+def get_headers():
+    """Headers para requests"""
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+    }
+
+# ==================== HERRAMIENTAS OSINT ====================
+
+class OSINTTools:
+    """Clase con herramientas OSINT"""
+    
+    @staticmethod
+    def extract_urls(target_url, max_urls=100):
+        """Extraer URLs de una página"""
+        urls = []
+        try:
+            headers = get_headers()
+            response = requests.get(target_url, headers=headers, timeout=15, verify=True)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Enlaces <a>
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if href and not href.startswith(('#', 'javascript:', 'mailto:', 'tel:')):
+                    absolute_url = urljoin(target_url, href)
+                    if validate_url(absolute_url):
+                        urls.append(absolute_url)
+            
+            # Recursos
+            tags = soup.find_all(['img', 'script', 'link', 'source', 'iframe'])
+            for tag in tags:
+                for attr in ['src', 'href', 'data-src']:
+                    if tag.has_attr(attr):
+                        value = tag[attr]
+                        if value and not value.startswith(('#', 'javascript:', 'data:')):
+                            absolute_url = urljoin(target_url, value)
+                            if validate_url(absolute_url):
+                                urls.append(absolute_url)
+            
+            return list(set(urls))[:max_urls]
+            
+        except Exception as e:
+            return [f"Error: {str(e)}"]
+    
+    @staticmethod
+    def extract_emails(target_url):
+        """Extraer emails"""
+        emails = set()
+        try:
+            headers = get_headers()
+            response = requests.get(target_url, headers=headers, timeout=15)
+            
+            # Buscar en texto
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+            found_emails = re.findall(email_pattern, response.text)
+            emails.update(found_emails)
+            
+            # Buscar en mailto links
+            soup = BeautifulSoup(response.text, 'html.parser')
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if href.startswith('mailto:'):
+                    email = href.replace('mailto:', '').split('?')[0]
+                    if '@' in email:
+                        emails.add(email)
+            
+            return list(emails)[:50]
+        except:
+            return []
+    
+    @staticmethod
+    def extract_phones(target_url):
+        """Extraer números de teléfono"""
+        phones = set()
+        try:
+            headers = get_headers()
+            response = requests.get(target_url, headers=headers, timeout=15)
+            
+            patterns = [
+                r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]',  # Internacional
+                r'\b\d{3}[-.\s]??\d{3}[-.\s]??\d{4}\b',  # US/CA
+                r'\(\d{3}\)\s*\d{3}[-.\s]??\d{4}',  # Con paréntesis
+                r'\b\d{4}[-.\s]??\d{3}[-.\s]??\d{3}\b',  # Otro formato
+            ]
+            
+            for pattern in patterns:
+                found = re.findall(pattern, response.text)
+                phones.update(found)
+            
+            return list(phones)[:20]
+        except:
+            return []
+    
+    @staticmethod
+    def get_whois_info(domain):
+        """Información WHOIS"""
+        try:
+            w = whois.whois(domain)
+            info = {
+                'domain_name': w.domain_name,
+                'registrar': w.registrar,
+                'creation_date': str(w.creation_date),
+                'expiration_date': str(w.expiration_date),
+                'name_servers': list(w.name_servers)[:5] if w.name_servers else [],
+                'status': w.status,
+                'emails': w.emails,
+            }
+            return info
+        except:
+            return {"error": "No se pudo obtener información"}
+    
+    @staticmethod
+    def get_dns_info(domain):
+        """Información DNS"""
+        info = {}
+        try:
+            resolver = dns.resolver.Resolver()
+            resolver.timeout = 5
+            
+            # Registros A
+            try:
+                a_records = []
+                answers = resolver.resolve(domain, 'A')
+                for rdata in answers:
+                    a_records.append(str(rdata))
+                info['A'] = a_records
+            except:
+                info['A'] = []
+            
+            # Registros MX
+            try:
+                mx_records = []
+                answers = resolver.resolve(domain, 'MX')
+                for rdata in answers:
+                    mx_records.append(str(rdata))
+                info['MX'] = mx_records
+            except:
+                info['MX'] = []
+            
+            # Registros TXT
+            try:
+                txt_records = []
+                answers = resolver.resolve(domain, 'TXT')
+                for rdata in answers:
+                    txt_records.append(str(rdata))
+                info['TXT'] = txt_records
+            except:
+                info['TXT'] = []
+            
+            # Registros NS
+            try:
+                ns_records = []
+                answers = resolver.resolve(domain, 'NS')
+                for rdata in answers:
+                    ns_records.append(str(rdata))
+                info['NS'] = ns_records
+            except:
+                info['NS'] = []
+            
+            return info
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    @staticmethod
+    def google_dork_search(dork):
+        """Generar enlace de Google Dorks"""
+        encoded_dork = quote(dork)
+        return f"https://www.google.com/search?q={encoded_dork}"
+    
+    @staticmethod
+    def search_username(username):
+        """Buscar username en redes"""
+        platforms = {
+            "GitHub": f"https://github.com/{username}",
+            "Twitter": f"https://twitter.com/{username}",
+            "Instagram": f"https://instagram.com/{username}",
+            "Facebook": f"https://facebook.com/{username}",
+            "LinkedIn": f"https://linkedin.com/in/{username}",
+            "YouTube": f"https://youtube.com/@{username}",
+            "Reddit": f"https://reddit.com/user/{username}",
+            "Telegram": f"https://t.me/{username}",
+            "TikTok": f"https://tiktok.com/@{username}",
+        }
+        return platforms
+
+# ==================== HANDLERS DEL BOT ====================
+
+@bot.message_handler(commands=['start', 'help', 'menu'])
+def send_main_menu(message):
+    """Menú principal"""
+    user_id = message.from_user.id
+    log_action(user_id, "START")
+    
+    menu_text = f"""
+<b>🔍 OSINT-BOT v{BOT_VERSION}</b>
+<i>Herramientas de Inteligencia de Fuentes Abiertas</i>
+
+<u>🛠️ HERRAMIENTAS PRINCIPALES:</u>
+
+<code>/scrape URL</code> - Extraer todas las URLs
+<code>/emails URL</code> - Extraer correos electrónicos
+<code>/phones URL</code> - Extraer números telefónicos
+<code>/domain DOMINIO</code> - Información WHOIS/DNS
+<code>/dork QUERY</code> - Búsqueda con Google Dorks
+<code>/user USERNAME</code> - Buscar usuario en redes
+
+<u>📊 ANÁLISIS AVANZADO:</u>
+<code>/analyze URL</code> - Análisis completo del sitio
+<code>/deep URL</code> - Crawleo profundo (lento)
+<code>/metadata URL</code> - Metadatos del sitio
+
+<u>⚙️ UTILIDADES:</u>
+<code>/export</code> - Exportar últimos resultados
+<code>/history</code> - Ver historial de búsquedas
+<code>/clear</code> - Limpiar datos
+<code>/status</code> - Estado del bot
+
+<u>⚠️ USO ÉTICO:</u>
+• Solo para investigación autorizada
+• Respeta robots.txt y términos de servicio
+• No sobrecargues servidores
     """
     
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
+    # Crear teclado
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        types.KeyboardButton("🔍 Scrape URL"),
+        types.KeyboardButton("📧 Extraer Emails"),
+        types.KeyboardButton("🌐 Info Dominio"),
+        types.KeyboardButton("🔎 Google Dorks"),
+        types.KeyboardButton("📊 Análisis Completo"),
+        types.KeyboardButton("🗑️ Limpiar Datos")
     )
-
-async def data_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /data - Consulta de datos"""
-    keyboard = [
-        [InlineKeyboardButton("📈 Datos en Tiempo Real", callback_data='realtime_data')],
-        [InlineKeyboardButton("📊 Reportes Diarios", callback_data='daily_reports')],
-        [InlineKeyboardButton("📉 Análisis Histórico", callback_data='historical')],
-        [InlineKeyboardButton("🔍 Búsqueda Personalizada", callback_data='custom_search')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
-        "📊 *Selecciona el tipo de datos que deseas consultar:*",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    bot.send_message(message.chat.id, menu_text, reply_markup=markup)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /help"""
-    help_text = """
-🆘 *Centro de Ayuda - Expert Data Bot*
+@bot.message_handler(func=lambda msg: msg.text == "🔍 Scrape URL")
+def ask_scrape_url(message):
+    """Pedir URL para scrape"""
+    msg = bot.send_message(message.chat.id, "📥 <b>Envía la URL a analizar:</b>\n\nEjemplo: <code>https://ejemplo.com</code>")
+    bot.register_next_step_handler(msg, process_scrape)
 
-*Comandos principales:*
-• /start - Inicia el bot y muestra el menú
-• /data - Accede a las opciones de consulta de datos
-• /stats - Muestra estadísticas del bot
-• /help - Muestra este mensaje de ayuda
-• /about - Información sobre el bot
+def process_scrape(message):
+    """Procesar scrape de URL"""
+    user_id = message.from_user.id
+    url = message.text.strip()
+    
+    if not validate_url(url):
+        bot.reply_to(message, "❌ <b>URL inválida</b>\nFormato: https://ejemplo.com")
+        return
+    
+    log_action(user_id, "SCRAPE", url)
+    
+    # Enviar mensaje de procesamiento
+    processing_msg = bot.send_message(message.chat.id, f"🔍 <b>Analizando:</b>\n<code>{url}</code>\n⏳ <i>Extrayendo URLs...</i>")
+    
+    # Ejecutar en segundo plano
+    def do_scrape():
+        try:
+            urls = OSINTTools.extract_urls(url, max_urls=100)
+            
+            if not urls or (len(urls) == 1 and urls[0].startswith("Error:")):
+                bot.edit_message_text(f"❌ <b>No se pudieron extraer URLs</b>\n{urls[0] if urls else 'Error desconocido'}", 
+                                     message.chat.id, processing_msg.message_id)
+                return
+            
+            # Guardar en historial
+            if user_id not in search_history:
+                search_history[user_id] = []
+            search_history[user_id].append({
+                'type': 'scrape',
+                'url': url,
+                'results': len(urls),
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            # Formatear respuesta
+            response = f"✅ <b>Extracción completada</b>\n\n"
+            response += f"🔗 <b>URL analizada:</b> <code>{url}</code>\n"
+            response += f"📊 <b>URLs encontradas:</b> {len(urls)}\n\n"
+            response += "<b>Primeros 15 resultados:</b>\n"
+            
+            for i, found_url in enumerate(urls[:15], 1):
+                response += f"{i}. <code>{found_url}</code>\n"
+            
+            if len(urls) > 15:
+                response += f"\n📋 <i>... y {len(urls)-15} más</i>"
+            
+            # Botones de acción
+            markup = types.InlineKeyboardMarkup()
+            markup.row(
+                types.InlineKeyboardButton("📥 Exportar TXT", callback_data=f"export_scrape_{user_id}"),
+                types.InlineKeyboardButton("📧 Extraer Emails", callback_data=f"get_emails_{url}")
+            )
+            markup.row(
+                types.InlineKeyboardButton("📞 Extraer Teléfonos", callback_data=f"get_phones_{url}"),
+                types.InlineKeyboardButton("🔄 Crawlear Profundo", callback_data=f"deep_crawl_{url}")
+            )
+            
+            bot.edit_message_text(response, message.chat.id, processing_msg.message_id, reply_markup=markup)
+            
+            # Guardar datos
+            user_data[user_id] = {'urls': urls, 'type': 'scrape'}
+            
+        except Exception as e:
+            bot.edit_message_text(f"❌ <b>Error:</b> {str(e)[:200]}", 
+                                 message.chat.id, processing_msg.message_id)
+    
+    threading.Thread(target=do_scrape).start()
 
-*¿Cómo consultar datos?*
-1. Usa /data o haz clic en "Consultar Datos"
-2. Selecciona el tipo de datos que necesitas
-3. Sigue las instrucciones en pantalla
+@bot.message_handler(commands=['emails'])
+def handle_emails_command(message):
+    """Comando /emails"""
+    try:
+        url = message.text.split()[1]
+        process_emails(message, url)
+    except IndexError:
+        msg = bot.send_message(message.chat.id, "📧 <b>Envía la URL para extraer emails:</b>")
+        bot.register_next_step_handler(msg, lambda m: process_emails(m, m.text))
 
-*Soporte técnico:*
-Si encuentras problemas, contacta al desarrollador.
+def process_emails(message, url):
+    """Procesar extracción de emails"""
+    user_id = message.from_user.id
+    url = url.strip()
+    
+    if not validate_url(url):
+        bot.reply_to(message, "❌ URL inválida")
+        return
+    
+    log_action(user_id, "EMAILS", url)
+    
+    msg = bot.send_message(message.chat.id, f"📧 <b>Buscando emails en:</b>\n<code>{url}</code>")
+    
+    def do_email_extraction():
+        emails = OSINTTools.extract_emails(url)
+        
+        if not emails:
+            bot.edit_message_text("❌ <b>No se encontraron emails</b>", 
+                                 message.chat.id, msg.message_id)
+            return
+        
+        # Guardar historial
+        if user_id not in search_history:
+            search_history[user_id] = []
+        search_history[user_id].append({
+            'type': 'emails',
+            'url': url,
+            'results': len(emails),
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        response = f"✅ <b>Emails encontrados ({len(emails)}):</b>\n\n"
+        for email in emails:
+            response += f"• <code>{email}</code>\n"
+        
+        user_data[user_id] = {'emails': emails, 'type': 'emails'}
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📥 Exportar", callback_data=f"export_emails_{user_id}"))
+        
+        bot.edit_message_text(response, message.chat.id, msg.message_id, reply_markup=markup)
+    
+    threading.Thread(target=do_email_extraction).start()
 
-📌 *Consejo:* Usa los botones del menú para una mejor experiencia.
+@bot.message_handler(commands=['domain'])
+def handle_domain_command(message):
+    """Comando /domain"""
+    try:
+        domain = message.text.split()[1]
+        process_domain(message, domain)
+    except IndexError:
+        msg = bot.send_message(message.chat.id, "🌐 <b>Envía el dominio a analizar:</b>\nEjemplo: ejemplo.com")
+        bot.register_next_step_handler(msg, lambda m: process_domain(m, m.text))
+
+def process_domain(message, domain):
+    """Procesar análisis de dominio"""
+    user_id = message.from_user.id
+    domain = domain.strip().lower()
+    
+    if '.' not in domain:
+        bot.reply_to(message, "❌ Dominio inválido")
+        return
+    
+    log_action(user_id, "DOMAIN", domain)
+    
+    msg = bot.send_message(message.chat.id, f"🌐 <b>Analizando dominio:</b>\n<code>{domain}</code>\n⏳ <i>Obteniendo información...</i>")
+    
+    def do_domain_analysis():
+        try:
+            # Obtener información en paralelo
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_whois = executor.submit(OSINTTools.get_whois_info, domain)
+                future_dns = executor.submit(OSINTTools.get_dns_info, domain)
+                
+                whois_info = future_whois.result()
+                dns_info = future_dns.result()
+            
+            response = f"📊 <b>INFORMACIÓN DEL DOMINIO</b>\n\n"
+            response += f"🔗 <b>Dominio:</b> <code>{domain}</code>\n\n"
+            
+            response += "<u>📋 WHOIS Information:</u>\n"
+            if 'error' not in whois_info:
+                response += f"• <b>Registrador:</b> {whois_info.get('registrar', 'N/A')}\n"
+                response += f"• <b>Fecha creación:</b> {whois_info.get('creation_date', 'N/A')}\n"
+                response += f"• <b>Fecha expiración:</b> {whois_info.get('expiration_date', 'N/A')}\n"
+                response += f"• <b>Name Servers:</b> {len(whois_info.get('name_servers', []))}\n"
+            else:
+                response += "• No disponible\n"
+            
+            response += "\n<u>🌐 DNS Records:</u>\n"
+            if 'error' not in dns_info:
+                response += f"• <b>A Records:</b> {len(dns_info.get('A', []))}\n"
+                response += f"• <b>MX Records:</b> {len(dns_info.get('MX', []))}\n"
+                response += f"• <b>TXT Records:</b> {len(dns_info.get('TXT', []))}\n"
+                response += f"• <b>NS Records:</b> {len(dns_info.get('NS', []))}\n"
+            else:
+                response += "• No disponible\n"
+            
+            # Guardar datos
+            user_data[user_id] = {
+                'domain_info': {'whois': whois_info, 'dns': dns_info},
+                'type': 'domain'
+            }
+            
+            # Botones
+            markup = types.InlineKeyboardMarkup()
+            markup.row(
+                types.InlineKeyboardButton("📥 Exportar JSON", callback_data=f"export_domain_{user_id}"),
+                types.InlineKeyboardButton("🔍 Scrapear Sitio", callback_data=f"scrape_domain_{domain}")
+            )
+            
+            bot.edit_message_text(response, message.chat.id, msg.message_id, reply_markup=markup)
+            
+        except Exception as e:
+            bot.edit_message_text(f"❌ <b>Error:</b> {str(e)}", 
+                                 message.chat.id, msg.message_id)
+    
+    threading.Thread(target=do_domain_analysis).start()
+
+@bot.message_handler(commands=['dork'])
+def handle_dork(message):
+    """Comando Google Dorks"""
+    try:
+        dork = message.text[6:].strip()
+        if not dork:
+            bot.reply_to(message, "❌ <b>Uso:</b> <code>/dork site:example.com filetype:pdf</code>")
+            return
+        
+        log_action(message.from_user.id, "DORK", dork)
+        
+        google_url = OSINTTools.google_dork_search(dork)
+        
+        response = f"🔍 <b>Google Dork Generado</b>\n\n"
+        response += f"<b>Query:</b> <code>{dork}</code>\n\n"
+        response += f"<b>Enlace de búsqueda:</b>\n<code>{google_url}</code>\n\n"
+        response += "<i>⚠️ Usa de forma responsable</i>"
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔗 Abrir en Google", url=google_url))
+        
+        bot.reply_to(message, response, reply_markup=markup)
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['user'])
+def handle_user_search(message):
+    """Buscar usuario en redes"""
+    try:
+        username = message.text.split()[1]
+        search_username(message, username)
+    except IndexError:
+        msg = bot.send_message(message.chat.id, "👤 <b>Envía el username a buscar:</b>")
+        bot.register_next_step_handler(msg, lambda m: search_username(m, m.text))
+
+def search_username(message, username):
+    """Buscar username"""
+    user_id = message.from_user.id
+    username = username.strip()
+    
+    log_action(user_id, "USER_SEARCH", username)
+    
+    platforms = OSINTTools.search_username(username)
+    
+    response = f"🔍 <b>Búsqueda de usuario:</b> <code>{username}</code>\n\n"
+    response += "<b>Enlaces de búsqueda:</b>\n\n"
+    
+    for platform_name, url in platforms.items():
+        response += f"• {platform_name}: {url}\n"
+    
+    response += "\n⚠️ <i>Puede que el usuario no exista en todas las plataformas</i>"
+    
+    # Crear botones inline
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = []
+    for platform_name, url in list(platforms.items())[:8]:  # Primeras 8 plataformas
+        buttons.append(types.InlineKeyboardButton(platform_name, url=url))
+    
+    # Agregar botones en filas de 2
+    for i in range(0, len(buttons), 2):
+        if i + 1 < len(buttons):
+            markup.row(buttons[i], buttons[i + 1])
+        else:
+            markup.row(buttons[i])
+    
+    bot.send_message(message.chat.id, response, reply_markup=markup)
+
+@bot.message_handler(commands=['analyze'])
+def handle_analyze(message):
+    """Análisis completo"""
+    try:
+        url = message.text.split()[1]
+        full_analysis(message, url)
+    except IndexError:
+        msg = bot.send_message(message.chat.id, "📊 <b>Envía la URL para análisis completo:</b>")
+        bot.register_next_step_handler(msg, lambda m: full_analysis(m, m.text))
+
+def full_analysis(message, url):
+    """Análisis completo de URL"""
+    user_id = message.from_user.id
+    url = url.strip()
+    
+    if not validate_url(url):
+        bot.reply_to(message, "❌ URL inválida")
+        return
+    
+    log_action(user_id, "FULL_ANALYSIS", url)
+    
+    msg = bot.send_message(message.chat.id, f"🔬 <b>Análisis completo iniciado:</b>\n<code>{url}</code>\n⏳ <i>Esto tomará unos segundos...</i>")
+    
+    def do_full_analysis():
+        try:
+            # Ejecutar todas las herramientas en paralelo
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                future_urls = executor.submit(OSINTTools.extract_urls, url, 50)
+                future_emails = executor.submit(OSINTTools.extract_emails, url)
+                future_phones = executor.submit(OSINTTools.extract_phones, url)
+                
+                urls = future_urls.result()
+                emails = future_emails.result()
+                phones = future_phones.result()
+            
+            # Obtener dominio
+            domain = urlparse(url).netloc
+            domain_info = OSINTTools.get_whois_info(domain)
+            
+            # Construir reporte
+            report = f"📈 <b>REPORTE DE ANÁLISIS COMPLETO</b>\n\n"
+            report += f"🔗 <b>URL analizada:</b> <code>{url}</code>\n"
+            report += f"🌐 <b>Dominio:</b> <code>{domain}</code>\n\n"
+            
+            report += "<u>📊 ESTADÍSTICAS:</u>\n"
+            report += f"• URLs encontradas: {len(urls)}\n"
+            report += f"• Emails encontrados: {len(emails)}\n"
+            report += f"• Teléfonos encontrados: {len(phones)}\n\n"
+            
+            report += "<u>📧 EMAILS (primeros 5):</u>\n"
+            if emails:
+                for i, email in enumerate(emails[:5], 1):
+                    report += f"{i}. <code>{email}</code>\n"
+            else:
+                report += "• Ninguno encontrado\n"
+            
+            report += "\n<u>📞 TELÉFONOS (primeros 3):</u>\n"
+            if phones:
+                for i, phone in enumerate(phones[:3], 1):
+                    report += f"{i}. <code>{phone}</code>\n"
+            else:
+                report += "• Ninguno encontrado\n"
+            
+            report += f"\n<u>🌐 INFO DOMINIO:</u>\n"
+            if 'error' not in domain_info:
+                report += f"• Registrador: {domain_info.get('registrar', 'N/A')}\n"
+                report += f"• Creado: {domain_info.get('creation_date', 'N/A')[:10]}\n"
+            else:
+                report += "• Información no disponible\n"
+            
+            # Guardar datos
+            user_data[user_id] = {
+                'analysis': {
+                    'url': url,
+                    'domain': domain,
+                    'urls_count': len(urls),
+                    'emails': emails,
+                    'phones': phones,
+                    'domain_info': domain_info
+                },
+                'type': 'full_analysis'
+            }
+            
+            # Botones de acción
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton("📥 Exportar Reporte", callback_data=f"export_report_{user_id}"),
+                types.InlineKeyboardButton("🔍 Ver Todas URLs", callback_data=f"show_urls_{user_id}"),
+                types.InlineKeyboardButton("📧 Ver Todos Emails", callback_data=f"show_emails_{user_id}"),
+                types.InlineKeyboardButton("📞 Ver Todos Teléfonos", callback_data=f"show_phones_{user_id}")
+            )
+            
+            bot.edit_message_text(report, message.chat.id, msg.message_id, reply_markup=markup)
+            
+        except Exception as e:
+            bot.edit_message_text(f"❌ <b>Error en análisis:</b> {str(e)[:200]}", 
+                                 message.chat.id, msg.message_id)
+    
+    threading.Thread(target=do_full_analysis).start()
+
+@bot.message_handler(commands=['export'])
+def handle_export(message):
+    """Exportar últimos resultados"""
+    user_id = message.from_user.id
+    
+    if user_id not in user_data:
+        bot.reply_to(message, "❌ No hay datos para exportar")
+        return
+    
+    data = user_data[user_id]
+    export_type = data.get('type', 'data')
+    
+    try:
+        if export_type == 'scrape':
+            content = "\n".join(data.get('urls', []))
+            filename = f"urls_{user_id}_{int(time.time())}.txt"
+            send_as_file(message.chat.id, content, filename, "📄 URLs exportadas")
+            
+        elif export_type == 'emails':
+            content = "\n".join(data.get('emails', []))
+            filename = f"emails_{user_id}_{int(time.time())}.txt"
+            send_as_file(message.chat.id, content, filename, "📧 Emails exportados")
+            
+        elif export_type == 'domain':
+            content = json.dumps(data.get('domain_info', {}), indent=2, ensure_ascii=False)
+            filename = f"domain_{user_id}_{int(time.time())}.json"
+            send_as_file(message.chat.id, content, filename, "🌐 Info dominio exportada")
+            
+        elif export_type == 'full_analysis':
+            content = json.dumps(data.get('analysis', {}), indent=2, ensure_ascii=False)
+            filename = f"analysis_{user_id}_{int(time.time())}.json"
+            send_as_file(message.chat.id, content, filename, "📊 Análisis exportado")
+            
+        else:
+            bot.reply_to(message, "❌ Tipo de exportación no soportado")
+            
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error exportando: {str(e)}")
+
+def send_as_file(chat_id, content, filename, caption):
+    """Enviar contenido como archivo"""
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(content)
+    
+    with open(filename, 'rb') as f:
+        bot.send_document(chat_id, f, caption=caption)
+    
+    os.remove(filename)
+
+@bot.message_handler(commands=['history'])
+def handle_history(message):
+    """Mostrar historial"""
+    user_id = message.from_user.id
+    
+    if user_id not in search_history or not search_history[user_id]:
+        bot.reply_to(message, "📭 <b>No hay historial de búsquedas</b>")
+        return
+    
+    history = search_history[user_id][-10:]  # Últimas 10 búsquedas
+    
+    response = "📜 <b>HISTORIAL DE BÚSQUEDAS</b>\n\n"
+    
+    for i, entry in enumerate(reversed(history), 1):
+        date = entry['timestamp'].split('T')[0]
+        time_str = entry['timestamp'].split('T')[1][:8]
+        
+        response += f"<b>{i}. {entry['type'].upper()}</b>\n"
+        response += f"   📅 {date} ⏰ {time_str}\n"
+        response += f"   🔗 {entry['url'][:50]}...\n"
+        response += f"   📊 Resultados: {entry['results']}\n\n"
+    
+    response += f"<i>Mostrando {len(history)} de {len(search_history[user_id])} búsquedas</i>"
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🗑️ Limpiar Historial", callback_data=f"clear_history_{user_id}"))
+    
+    bot.send_message(message.chat.id, response, reply_markup=markup)
+
+@bot.message_handler(commands=['clear'])
+def handle_clear(message):
+    """Limpiar datos"""
+    user_id = message.from_user.id
+    
+    if user_id in user_data:
+        del user_data[user_id]
+    
+    if user_id in search_history:
+        del search_history[user_id]
+    
+    bot.reply_to(message, "✅ <b>Datos limpiados correctamente</b>")
+    log_action(user_id, "CLEAR_DATA")
+
+@bot.message_handler(commands=['status'])
+def handle_status(message):
+    """Estado del bot"""
+    status_text = f"""
+<b>🤖 OSINT-BOT Status</b>
+
+• <b>Versión:</b> {BOT_VERSION}
+• <b>Usuarios activos:</b> {len(user_data)}
+• <b>Búsquedas totales:</b> {sum(len(v) for v in search_history.values())}
+• <b>Hora servidor:</b> {datetime.now().strftime('%H:%M:%S')}
+
+<b>🛠️ Funciones activas:</b>
+• Extracción URLs
+• Extracción emails/teléfonos
+• Análisis WHOIS/DNS
+• Google Dorks
+• Búsqueda usuarios
+
+<b>⚠️ Recordatorio:</b>
+Este bot es para investigación ética.
+Respeta siempre los términos de servicio.
     """
+    bot.reply_to(message, status_text)
+
+# ==================== HANDLERS DE CALLBACK ====================
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    """Manejar botones inline"""
+    user_id = call.from_user.id
+    data = call.data
     
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    try:
+        if data.startswith("export_"):
+            action, user_str = data.split("_")[1], data.split("_")[2]
+            
+            if int(user_str) != user_id:
+                bot.answer_callback_query(call.id, "❌ No autorizado")
+                return
+            
+            handle_export(call.message)
+            bot.answer_callback_query(call.id, "✅ Exportando...")
+            
+        elif data.startswith("get_emails_"):
+            url = data[11:]
+            process_emails(call.message, url)
+            bot.answer_callback_query(call.id, "📧 Buscando emails...")
+            
+        elif data.startswith("get_phones_"):
+            url = data[11:]
+            bot.answer_callback_query(call.id, "📞 Función en desarrollo")
+            
+        elif data.startswith("deep_crawl_"):
+            url = data[11:]
+            bot.answer_callback_query(call.id, "🔄 Crawleo profundo iniciado")
+            
+        elif data.startswith("scrape_domain_"):
+            domain = data[14:]
+            url = f"https://{domain}"
+            process_scrape(call.message)
+            
+        elif data.startswith("show_urls_"):
+            uid = int(data[10:])
+            if uid == user_id and user_id in user_data:
+                urls = user_data[user_id].get('urls', [])
+                response = "🔗 <b>Todas las URLs:</b>\n\n"
+                for url in urls[:30]:
+                    response += f"• {url}\n"
+                bot.send_message(call.message.chat.id, response[:4000])
+            
+        elif data.startswith("clear_history_"):
+            uid = int(data[14:])
+            if uid == user_id:
+                if user_id in search_history:
+                    del search_history[user_id]
+                bot.answer_callback_query(call.id, "✅ Historial limpiado")
+                bot.edit_message_text("🗑️ <b>Historial limpiado</b>", 
+                                     call.message.chat.id, call.message.message_id)
+        
+        else:
+            bot.answer_callback_query(call.id, "⚙️ Función no implementada")
+            
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
+        print(f"Callback error: {e}")
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /stats - Estadísticas"""
-    conn = sqlite3.connect('expert_data.db')
-    c = conn.cursor()
-    
-    # Obtener estadísticas
-    c.execute('SELECT COUNT(*) FROM users')
-    total_users = c.fetchone()[0]
-    
-    c.execute('SELECT COUNT(*) FROM queries')
-    total_queries = c.fetchone()[0]
-    
-    conn.close()
-    
-    stats_text = f"""
-📈 *ESTADÍSTICAS DEL BOT*
+# ==================== MANEJO DE MENSAJES NO RECONOCIDOS ====================
 
-👥 *Usuarios totales:* {total_users}
-📊 *Consultas realizadas:* {total_queries}
-🔄 *Versión del bot:* 2.0
-⚙️ *Estado:* Operativo ✅
-
-*Uso reciente:*
-• Consultas hoy: En desarrollo
-• Usuarios activos: En desarrollo
-• Tiempo activo: 24/7
-
-*Próximas funciones:*
-✓ Exportación de datos
-✓ Gráficos interactivos
-✓ Alertas personalizadas
-    """
-    
-    await update.message.reply_text(stats_text, parse_mode='Markdown')
-
-async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /about"""
-    about_text = """
-🤖 *Expert Data Bot v2.0*
-
-*Descripción:*
-Bot especializado en análisis y consulta de datos en tiempo real. 
-Desarrollado para proporcionar información precisa y actualizada.
-
-*Características:*
-• Consultas de datos en tiempo real
-• Análisis histórico
-• Reportes personalizados
-• Base de datos local
-• Interfaz intuitiva
-
-*Tecnologías:*
-• Python 3.10+
-• python-telegram-bot v20
-• SQLite3
-• Railway (hosting)
-
-*Desarrollador:* @ExpertDataDev
-*Soporte:* @ExpertDataSupport
-
-*Versión actual:* 2.0 (Migrado sin Updater)
-*Última actualización:* Diciembre 2025
-    """
-    
-    await update.message.reply_text(about_text, parse_mode='Markdown')
-
-# Handlers para botones inline
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja los botones inline"""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    
-    if data == 'query_data':
-        await data_command_callback(query)
-    elif data == 'stats':
-        await stats_command_callback(query)
-    elif data == 'help':
-        await help_command_callback(query)
-    elif data == 'info':
-        await about_command_callback(query)
-    elif data == 'realtime_data':
-        await realtime_data_callback(query)
-    elif data == 'daily_reports':
-        await daily_reports_callback(query)
-    elif data == 'historical':
-        await historical_callback(query)
-    elif data == 'custom_search':
-        await custom_search_callback(query)
-
-async def data_command_callback(query):
-    """Callback para consulta de datos"""
-    await query.edit_message_text(
-        "📊 *Consulta de Datos*\n\nSelecciona el tipo de análisis:",
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Tiempo Real", callback_data='realtime_data')],
-            [InlineKeyboardButton("📅 Histórico", callback_data='historical')],
-            [InlineKeyboardButton("📋 Reportes", callback_data='daily_reports')],
-            [InlineKeyboardButton("🔙 Volver", callback_data='back_to_main')]
-        ])
-    )
-
-async def realtime_data_callback(query):
-    """Datos en tiempo real"""
-    await query.edit_message_text(
-        "🔄 *Datos en Tiempo Real*\n\n"
-        "Esta función está en desarrollo activo.\n"
-        "Próximamente podrás consultar:\n"
-        "• Precios de criptomonedas\n"
-        "• Indicadores económicos\n"
-        "• Datos bursátiles\n"
-        "• Métricas en tiempo real\n\n"
-        "¡Muy pronto disponible! 🚀",
-        parse_mode='Markdown'
-    )
-
-async def daily_reports_callback(query):
-    """Reportes diarios"""
-    await query.edit_message_text(
-        "📋 *Reportes Diarios*\n\n"
-        "Generando reporte del día...\n\n"
-        "📅 *Fecha:* " + datetime.now().strftime("%d/%m/%Y") + "\n"
-        "📊 *Consultas hoy:* 0\n"
-        "👥 *Usuarios activos:* 0\n"
-        "✅ *Estado del sistema:* Operativo\n\n"
-        "*Próximamente:*\n"
-        "✓ Reportes personalizados\n"
-        "✓ Exportación PDF/Excel\n"
-        "✓ Programación automática",
-        parse_mode='Markdown'
-    )
-
-async def historical_callback(query):
-    """Análisis histórico"""
-    await query.edit_message_text(
-        "📉 *Análisis Histórico*\n\n"
-        "Funcionalidad en desarrollo.\n\n"
-        "Podrás consultar:\n"
-        "• Series temporales\n"
-        "• Tendencia histórica\n"
-        "• Comparativas\n"
-        "• Proyecciones\n\n"
-        "Disponible en la próxima actualización.",
-        parse_mode='Markdown'
-    )
-
-async def custom_search_callback(query):
-    """Búsqueda personalizada"""
-    await query.edit_message_text(
-        "🔍 *Búsqueda Personalizada*\n\n"
-        "Escribe lo que quieres buscar:\n\n"
-        "*Ejemplos:*\n"
-        "• \"precio BTC últimos 7 días\"\n"
-        "• \"indicador económico argentina\"\n"
-        "• \"tendencia mercado hoy\"\n\n"
-        "Envía tu consulta directamente en el chat.",
-        parse_mode='Markdown'
-    )
-
-async def stats_command_callback(query):
-    """Callback para estadísticas"""
-    await query.edit_message_text(
-        "📈 *Cargando estadísticas...*\n\n"
-        "Consulta completa disponible con /stats",
-        parse_mode='Markdown'
-    )
-
-async def help_command_callback(query):
-    """Callback para ayuda"""
-    await query.edit_message_text(
-        "❓ *Ayuda*\n\n"
-        "Comandos disponibles:\n"
-        "/start - Menú principal\n"
-        "/data - Consultar datos\n"
-        "/stats - Estadísticas\n"
-        "/help - Esta ayuda\n"
-        "/about - Información\n\n"
-        "Para más detalles, usa /help en el chat.",
-        parse_mode='Markdown'
-    )
-
-async def about_command_callback(query):
-    """Callback para información"""
-    await query.edit_message_text(
-        "ℹ️ *Información del Bot*\n\n"
-        "🤖 Expert Data Bot v2.0\n"
-        "🔧 Reconstruido sin Updater\n"
-        "🚀 Alojado en Railway\n"
-        "📊 Especializado en datos\n\n"
-        "Usa /about para más información.",
-        parse_mode='Markdown'
-    )
-
-# Manejador de mensajes
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja mensajes de texto"""
-    text = update.message.text.lower()
-    
-    if any(word in text for word in ['hola', 'hello', 'hi']):
-        await update.message.reply_text("¡Hola! ¿En qué puedo ayudarte? Usa /start para ver las opciones.")
-    elif any(word in text for word in ['gracias', 'thanks']):
-        await update.message.reply_text("¡De nada! 😊 ¿Necesitas algo más?")
-    elif 'datos' in text or 'información' in text:
-        await data_command(update, context)
+@bot.message_handler(func=lambda message: True)
+def handle_unknown(message):
+    """Manejar mensajes no reconocidos"""
+    if message.text in ["🔍 Scrape URL", "📧 Extraer Emails", "🌐 Info Dominio", 
+                       "🔎 Google Dorks", "📊 Análisis Completo", "🗑️ Limpiar Datos"]:
+        # Los botones del teclado ya tienen handlers
+        pass
+    elif message.text.startswith('http'):
+        # Si es una URL, hacer scrape automático
+        process_scrape(message)
     else:
-        await update.message.reply_text(
-            "🤖 No entiendo tu mensaje.\n\n"
-            "Usa /start para ver el menú principal o /help para ayuda."
-        )
+        bot.reply_to(message, "❌ <b>Comando no reconocido</b>\n\nUsa /help para ver comandos disponibles")
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja errores"""
-    logger.error(f"Error: {context.error}")
-    
-    if update and update.effective_message:
-        await update.effective_message.reply_text(
-            "❌ Ocurrió un error. Por favor, intenta de nuevo.\n"
-            "Si el problema persiste, contacta al soporte."
-        )
+# ==================== INICIAR BOT ====================
+
+def check_token():
+    """Verificar token"""
+    try:
+        bot_info = bot.get_me()
+        print(f"✅ Token válido")
+        print(f"🤖 Bot: @{bot_info.username}")
+        print(f"🆔 ID: {bot_info.id}")
+        print(f"📛 Nombre: {bot_info.first_name}")
+        return True
+    except Exception as e:
+        print(f"❌ Token inválido: {e}")
+        print("⚠️  Ve a @BotFather para obtener un token válido")
+        return False
 
 def main():
     """Función principal"""
     print("=" * 50)
-    print("🤖 EXPERT DATA BOT - INICIANDO")
+    print(f"🤖 OSINT-BOT v{BOT_VERSION}")
     print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 50)
     
     # Verificar token
-    if not BOT_TOKEN:
-        print("❌ ERROR: BOT_TOKEN no configurado")
-        print("Configura la variable de entorno BOT_TOKEN")
-        return
+    if not check_token():
+        sys.exit(1)
     
-    print(f"✅ Token encontrado: {BOT_TOKEN[:10]}...")
-    
-    # Inicializar base de datos
-    init_database()
-    print("✅ Base de datos inicializada")
-    
-    # Crear Application (SIN UPDATER)
-    application = Application.builder().token(BOT_TOKEN).build()
-    print("✅ Application creada")
-    
-    # Añadir handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("data", data_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("about", about_command))
-    
-    # Handler para botones inline
-    application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Handler para mensajes de texto
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Handler de errores
-    application.add_error_handler(error_handler)
-    
-    print("✅ Todos los handlers configurados")
-    print("🚀 Iniciando bot...")
+    print("\n🔧 Características activas:")
+    print("   • Autoinstalación de dependencias")
+    print("   • Extracción de URLs, emails, teléfonos")
+    print("   • Análisis WHOIS/DNS")
+    print("   • Google Dorks")
+    print("   • Búsqueda de usuarios")
+    print("   • Exportación de resultados")
+    print("\n⚠️  ADVERTENCIA: Token públicamente visible")
+    print("   Cualquiera puede controlar este bot")
+    print("   Considera revocar este token después de pruebas")
+    print("\n✅ Bot iniciado. Presiona Ctrl+C para detener.")
     print("=" * 50)
     
-    # Iniciar polling
-    application.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=Update.ALL_TYPES
-    )
+    # Iniciar bot
+    try:
+        bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    except KeyboardInterrupt:
+        print("\n👋 Bot detenido por el usuario")
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
