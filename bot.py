@@ -1,72 +1,22 @@
 #!/usr/bin/env python3
 """
-🤖 OSINT-BOT - Versión Autoinstalable 4.0
+🤖 OSINT-BOT - Versión 4.0 Estable
 Bot de Inteligencia de Fuentes Abiertas
-Características: Autoinstalación, múltiples herramientas, interfaz amigable
+Token incluido: 8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q
 """
 
 import os
 import sys
-import subprocess
-import platform
 import json
 import re
 import time
 import threading
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import urljoin, urlparse, quote
 
 # ==================== CONFIGURACIÓN ====================
 TOKEN = "8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q"
 BOT_VERSION = "4.0"
-ADMIN_ID = None  # Cambia por tu ID de Telegram
-
-# Dependencias requeridas
-REQUIREMENTS = [
-    "pyTelegramBotAPI==4.15.0",
-    "requests==2.31.0",
-    "beautifulsoup4==4.12.2",
-    "python-whois==0.9.3",
-    "dnspython==2.4.2",
-    "lxml==4.9.3",
-    "urllib3==2.0.7"
-]
-
-# ==================== AUTOINSTALACIÓN ====================
-
-def auto_install():
-    """Instala dependencias automáticamente"""
-    print("🔧 Iniciando autoinstalación...")
-    
-    # Verificar Python
-    if sys.version_info < (3, 7):
-        print("❌ Python 3.7+ requerido")
-        sys.exit(1)
-    
-    print(f"✅ Python {platform.python_version()}")
-    
-    # Actualizar pip
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "--quiet"])
-    except:
-        pass
-    
-    # Instalar dependencias
-    print("📦 Instalando paquetes...")
-    for req in REQUIREMENTS:
-        pkg = req.split('==')[0]
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", req, "--quiet"])
-            print(f"   ✅ {pkg}")
-        except:
-            print(f"   ⚠️  {pkg} (puede causar errores)")
-    
-    print("✅ Autoinstalación completada\n")
-
-# Ejecutar autoinstalación
-if __name__ == "__main__":
-    auto_install()
 
 # ==================== IMPORTAR MÓDULOS ====================
 try:
@@ -77,9 +27,11 @@ try:
     import whois
     import dns.resolver
     import concurrent.futures
+    print("✅ Módulos importados correctamente")
 except ImportError as e:
-    print(f"❌ Error importando: {e}")
-    print("Ejecuta: pip install -r requirements.txt")
+    print(f"❌ Error importando módulos: {e}")
+    print("\n📦 Instala las dependencias con:")
+    print("pip install pyTelegramBotAPI requests beautifulsoup4 python-whois dnspython")
     sys.exit(1)
 
 # ==================== INICIALIZAR BOT ====================
@@ -121,7 +73,6 @@ def get_headers():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9',
-        'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
     }
 
@@ -770,13 +721,22 @@ def handle_export(message):
 
 def send_as_file(chat_id, content, filename, caption):
     """Enviar contenido como archivo"""
-    with open(filename, 'w', encoding='utf-8') as f:
+    # Crear directorio temp si no existe
+    if not os.path.exists('temp'):
+        os.makedirs('temp')
+    
+    filepath = f"temp/{filename}"
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
     
-    with open(filename, 'rb') as f:
+    with open(filepath, 'rb') as f:
         bot.send_document(chat_id, f, caption=caption)
     
-    os.remove(filename)
+    # Limpiar archivo temporal
+    try:
+        os.remove(filepath)
+    except:
+        pass
 
 @bot.message_handler(commands=['history'])
 def handle_history(message):
@@ -855,50 +815,76 @@ def handle_callback(call):
     
     try:
         if data.startswith("export_"):
-            action, user_str = data.split("_")[1], data.split("_")[2]
-            
-            if int(user_str) != user_id:
-                bot.answer_callback_query(call.id, "❌ No autorizado")
-                return
-            
-            handle_export(call.message)
-            bot.answer_callback_query(call.id, "✅ Exportando...")
+            # export_scrape_123456
+            parts = data.split("_")
+            if len(parts) >= 3:
+                user_str = parts[2]
+                if user_str.isdigit() and int(user_str) == user_id:
+                    # Simular mensaje para exportar
+                    class FakeMessage:
+                        def __init__(self, chat_id, user_id):
+                            self.chat = type('obj', (object,), {'id': chat_id})
+                            self.from_user = type('obj', (object,), {'id': user_id})
+                    
+                    fake_msg = FakeMessage(call.message.chat.id, user_id)
+                    handle_export(fake_msg)
+                    bot.answer_callback_query(call.id, "✅ Exportando...")
+                else:
+                    bot.answer_callback_query(call.id, "❌ No autorizado")
             
         elif data.startswith("get_emails_"):
             url = data[11:]
-            process_emails(call.message, url)
+            # Crear mensaje simulado
+            class FakeMessage:
+                def __init__(self, text, user_id, chat_id):
+                    self.text = text
+                    self.from_user = type('obj', (object,), {'id': user_id})
+                    self.chat = type('obj', (object,), {'id': chat_id})
+            
+            fake_msg = FakeMessage(url, user_id, call.message.chat.id)
+            process_emails(fake_msg, url)
             bot.answer_callback_query(call.id, "📧 Buscando emails...")
             
         elif data.startswith("get_phones_"):
-            url = data[11:]
             bot.answer_callback_query(call.id, "📞 Función en desarrollo")
             
         elif data.startswith("deep_crawl_"):
-            url = data[11:]
             bot.answer_callback_query(call.id, "🔄 Crawleo profundo iniciado")
             
         elif data.startswith("scrape_domain_"):
             domain = data[14:]
             url = f"https://{domain}"
-            process_scrape(call.message)
+            # Crear mensaje simulado
+            class FakeMessage:
+                def __init__(self, text, user_id, chat_id):
+                    self.text = text
+                    self.from_user = type('obj', (object,), {'id': user_id})
+                    self.chat = type('obj', (object,), {'id': chat_id})
+            
+            fake_msg = FakeMessage(url, user_id, call.message.chat.id)
+            process_scrape(fake_msg)
             
         elif data.startswith("show_urls_"):
-            uid = int(data[10:])
-            if uid == user_id and user_id in user_data:
-                urls = user_data[user_id].get('urls', [])
-                response = "🔗 <b>Todas las URLs:</b>\n\n"
-                for url in urls[:30]:
-                    response += f"• {url}\n"
-                bot.send_message(call.message.chat.id, response[:4000])
+            parts = data.split("_")
+            if len(parts) >= 3:
+                uid = int(parts[2])
+                if uid == user_id and user_id in user_data:
+                    urls = user_data[user_id].get('urls', [])
+                    response = "🔗 <b>Todas las URLs:</b>\n\n"
+                    for url in urls[:30]:
+                        response += f"• {url}\n"
+                    bot.send_message(call.message.chat.id, response[:4000])
             
         elif data.startswith("clear_history_"):
-            uid = int(data[14:])
-            if uid == user_id:
-                if user_id in search_history:
-                    del search_history[user_id]
-                bot.answer_callback_query(call.id, "✅ Historial limpiado")
-                bot.edit_message_text("🗑️ <b>Historial limpiado</b>", 
-                                     call.message.chat.id, call.message.message_id)
+            parts = data.split("_")
+            if len(parts) >= 3:
+                uid = int(parts[2])
+                if uid == user_id:
+                    if user_id in search_history:
+                        del search_history[user_id]
+                    bot.answer_callback_query(call.id, "✅ Historial limpiado")
+                    bot.edit_message_text("🗑️ <b>Historial limpiado</b>", 
+                                         call.message.chat.id, call.message.message_id)
         
         else:
             bot.answer_callback_query(call.id, "⚙️ Función no implementada")
@@ -950,8 +936,8 @@ def main():
         sys.exit(1)
     
     print("\n🔧 Características activas:")
-    print("   • Autoinstalación de dependencias")
-    print("   • Extracción de URLs, emails, teléfonos")
+    print("   • Extracción de URLs")
+    print("   • Extracción emails/teléfonos")
     print("   • Análisis WHOIS/DNS")
     print("   • Google Dorks")
     print("   • Búsqueda de usuarios")
