@@ -1,0 +1,16 @@
+# Secretos
+.env
+.env.local
+*.env
+secrets/
+config.json
+token.txt
+
+# Logs
+bot_log.txt
+*.log
+logs/
+
+# Temp
+temp/
+*.tmp
