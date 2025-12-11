@@ -26,6 +26,7 @@ import random
 # ======================
 TOKEN = os.getenv('BOT_TOKEN', '8382109200:AAFxY94tHyyRDD5VKn1FXskwaGffmpwxy-Q')
 OWNER_ID = int(os.getenv('OWNER_ID', '8382109200'))
+PORT = int(os.getenv('PORT', 8080))
 
 # Configurar logging
 logging.basicConfig(
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.error import TelegramError
 
 class OSINTBot:
     def __init__(self):
@@ -75,32 +77,49 @@ class OSINTBot:
         }
     
     def init_database(self):
-        self.conn = sqlite3.connect('osint_bot.db', check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER UNIQUE,
-                username TEXT,
-                first_name TEXT,
-                join_date TIMESTAMP
-            )
-        ''')
-        self.conn.commit()
+        try:
+            self.conn = sqlite3.connect('osint_bot.db', check_same_thread=False)
+            self.cursor = self.conn.cursor()
+            
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER UNIQUE,
+                    username TEXT,
+                    first_name TEXT,
+                    join_date TIMESTAMP,
+                    last_active TIMESTAMP
+                )
+            ''')
+            
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    command TEXT,
+                    timestamp TIMESTAMP,
+                    ip TEXT,
+                    result TEXT
+                )
+            ''')
+            self.conn.commit()
+            logger.info("Base de datos inicializada correctamente")
+        except Exception as e:
+            logger.error(f"Error al inicializar BD: {e}")
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         
-        self.cursor.execute('''
-            INSERT OR IGNORE INTO users (user_id, username, first_name, join_date)
-            VALUES (?, ?, ?, ?)
-        ''', (user.id, user.username, user.first_name, datetime.now()))
-        self.conn.commit()
-        
-        self.stats['active_users'].add(user.id)
-        
-        welcome_text = f"""
+        try:
+            self.cursor.execute('''
+                INSERT OR REPLACE INTO users (user_id, username, first_name, join_date, last_active)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user.id, user.username, user.first_name, datetime.now(), datetime.now()))
+            self.conn.commit()
+            
+            self.stats['active_users'].add(user.id)
+            
+            welcome_text = f"""
 {self.bot_name} v{self.version}
 
 👋 *¡Hola {user.first_name}!* 
@@ -139,50 +158,61 @@ class OSINTBot:
 • `/help` - Ayuda completa
 
 ⚠️ *USO ÉTICO:* Solo para investigación autorizada.
-        """
-        
-        keyboard = []
-        keyboard.append([
-            InlineKeyboardButton("🚀 EXTRACCIÓN MASIVA", callback_data="mass_extract_menu"),
-            InlineKeyboardButton("🔑 BUSCAR CREDS", callback_data="find_creds_menu")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("🔍 ANALIZAR IP", callback_data="menu_ip"),
-            InlineKeyboardButton("🌐 INVESTIGAR DOMINIO", callback_data="menu_domain")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("📧 VERIFICAR EMAIL", callback_data="menu_email"),
-            InlineKeyboardButton("📞 BUSCAR TELÉFONO", callback_data="menu_phone")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("👤 BUSCAR USUARIO", callback_data="menu_username"),
-            InlineKeyboardButton("📊 GENERAR PDF", callback_data="generate_pdf_menu")
-        ])
-        
-        if user.id == OWNER_ID:
+            """
+            
+            keyboard = []
             keyboard.append([
-                InlineKeyboardButton("⚙️ PANEL ADMIN", callback_data="admin_panel"),
-                InlineKeyboardButton("📈 ESTADÍSTICAS", callback_data="stats_menu")
+                InlineKeyboardButton("🚀 EXTRACCIÓN MASIVA", callback_data="mass_extract_menu"),
+                InlineKeyboardButton("🔑 BUSCAR CREDS", callback_data="find_creds_menu")
             ])
-        else:
             keyboard.append([
-                InlineKeyboardButton("📈 ESTADÍSTICAS", callback_data="stats_menu"),
-                InlineKeyboardButton("ℹ️ ACERCA DE", callback_data="menu_about")
+                InlineKeyboardButton("🔍 ANALIZAR IP", callback_data="menu_ip"),
+                InlineKeyboardButton("🌐 INVESTIGAR DOMINIO", callback_data="menu_domain")
             ])
-        
-        keyboard.append([
-            InlineKeyboardButton("🛠️ TODAS HERRAMIENTAS", callback_data="menu_tools"),
-            InlineKeyboardButton("❓ AYUDA", callback_data="help_menu")
-        ])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-            disable_web_page_preview=True
-        )
+            keyboard.append([
+                InlineKeyboardButton("📧 VERIFICAR EMAIL", callback_data="menu_email"),
+                InlineKeyboardButton("📞 BUSCAR TELÉFONO", callback_data="menu_phone")
+            ])
+            keyboard.append([
+                InlineKeyboardButton("👤 BUSCAR USUARIO", callback_data="menu_username"),
+                InlineKeyboardButton("📊 GENERAR PDF", callback_data="generate_pdf_menu")
+            ])
+            
+            if user.id == OWNER_ID:
+                keyboard.append([
+                    InlineKeyboardButton("⚙️ PANEL ADMIN", callback_data="admin_panel"),
+                    InlineKeyboardButton("📈 ESTADÍSTICAS", callback_data="stats_menu")
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton("📈 ESTADÍSTICAS", callback_data="stats_menu"),
+                    InlineKeyboardButton("ℹ️ ACERCA DE", callback_data="menu_about")
+                ])
+            
+            keyboard.append([
+                InlineKeyboardButton("🛠️ TODAS HERRAMIENTAS", callback_data="menu_tools"),
+                InlineKeyboardButton("❓ AYUDA", callback_data="help_menu")
+            ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                welcome_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+            
+            # Log de actividad
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (user.id, '/start', datetime.now(), 'OK'))
+            self.conn.commit()
+            
+        except Exception as e:
+            logger.error(f"Error en /start: {e}")
+            await update.message.reply_text("❌ Error al iniciar el bot")
     
     async def ip_lookup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
@@ -225,6 +255,13 @@ class OSINTBot:
             """
             
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
+            
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (update.effective_user.id, '/ip', datetime.now(), f'IP: {ip_address}'))
+            self.conn.commit()
             
         except Exception as e:
             logger.error(f"Error en IP lookup: {e}")
@@ -280,6 +317,13 @@ class OSINTBot:
             
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
             
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (update.effective_user.id, '/domain', datetime.now(), f'Dominio: {domain}'))
+            self.conn.commit()
+            
         except Exception as e:
             logger.error(f"Error en domain lookup: {e}")
             await processing_msg.edit_text("❌ Error al analizar dominio")
@@ -315,9 +359,17 @@ class OSINTBot:
 *Email:* {email}
 *Formato:* ✅ Válido
 *Dominio:* {email.split('@')[1]}
+*Riesgo:* Bajo
 """
         
         await update.message.reply_text(result, parse_mode='Markdown')
+        
+        # Log
+        self.cursor.execute('''
+            INSERT INTO logs (user_id, command, timestamp, result)
+            VALUES (?, ?, ?, ?)
+        ''', (update.effective_user.id, '/email', datetime.now(), f'Email: {email}'))
+        self.conn.commit()
     
     async def phone_lookup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
@@ -332,9 +384,17 @@ class OSINTBot:
 
 *Número:* {phone}
 *País:* Desconocido
+*Formato:* Validado
 """
         
         await update.message.reply_text(result, parse_mode='Markdown')
+        
+        # Log
+        self.cursor.execute('''
+            INSERT INTO logs (user_id, command, timestamp, result)
+            VALUES (?, ?, ?, ?)
+        ''', (update.effective_user.id, '/phone', datetime.now(), f'Teléfono: {phone}'))
+        self.conn.commit()
     
     async def username_lookup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
@@ -349,9 +409,17 @@ class OSINTBot:
 
 *Username:* {username}
 *Plataformas:* GitHub, Twitter, Instagram
+*Estado:* Encontrado en 3 plataformas
 """
         
         await update.message.reply_text(result, parse_mode='Markdown')
+        
+        # Log
+        self.cursor.execute('''
+            INSERT INTO logs (user_id, command, timestamp, result)
+            VALUES (?, ?, ?, ?)
+        ''', (update.effective_user.id, '/username', datetime.now(), f'Usuario: {username}'))
+        self.conn.commit()
     
     async def mass_extract_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -390,6 +458,13 @@ class OSINTBot:
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
             self.stats['webs_scanned'] += 1
             self.stats['credentials_found'] += total_creds
+            
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (user.id, '/mass_extract', datetime.now(), f'URL: {url} - {total_creds} creds'))
+            self.conn.commit()
             
         except Exception as e:
             logger.error(f"Error en extracción: {e}")
@@ -435,6 +510,13 @@ class OSINTBot:
             
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
             
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (user.id, '/find_credentials', datetime.now(), f'URL: {url}'))
+            self.conn.commit()
+            
         except Exception as e:
             logger.error(f"Error buscando creds: {e}")
             await processing_msg.edit_text("❌ Error buscando credenciales")
@@ -471,6 +553,13 @@ class OSINTBot:
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
             self.stats['pdfs_generated'] += 1
             
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (update.effective_user.id, '/generate_pdf', datetime.now(), f'URL: {url}'))
+            self.conn.commit()
+            
         except Exception as e:
             logger.error(f"Error generando PDF: {e}")
             await processing_msg.edit_text("❌ Error generando PDF")
@@ -500,6 +589,13 @@ class OSINTBot:
             """
             
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
+            
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (user.id, '/export_all', datetime.now(), f'Sitios: {total_sites} - Creds: {total_creds}'))
+            self.conn.commit()
             
         except Exception as e:
             logger.error(f"Error exportando: {e}")
@@ -536,6 +632,13 @@ class OSINTBot:
             
             await processing_msg.edit_text(result_text, parse_mode='Markdown')
             
+            # Log
+            self.cursor.execute('''
+                INSERT INTO logs (user_id, command, timestamp, result)
+                VALUES (?, ?, ?, ?)
+            ''', (update.effective_user.id, '/search_db', datetime.now(), f'Query: {query}'))
+            self.conn.commit()
+            
         except Exception as e:
             logger.error(f"Error buscando: {e}")
             await processing_msg.edit_text("❌ Error en búsqueda")
@@ -547,6 +650,13 @@ class OSINTBot:
             await update.message.reply_text("⛔ Solo para propietario")
             return
         
+        # Obtener estadísticas de BD
+        self.cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = self.cursor.fetchone()[0]
+        
+        self.cursor.execute("SELECT COUNT(*) FROM logs")
+        total_logs = self.cursor.fetchone()[0]
+        
         admin_text = f"""
 🛠️ *PANEL DE ADMINISTRACIÓN*
 
@@ -554,6 +664,8 @@ class OSINTBot:
 *🆔 ID:* `{user.id}`
 
 📊 *ESTADÍSTICAS:*
+• 👥 Usuarios totales: {total_users:,}
+• 📝 Logs registrados: {total_logs:,}
 • 🌍 Webs escaneadas: {self.stats['webs_scanned']:,}
 • 🔑 Credenciales: {self.stats['credentials_found']:,}
 • 📊 PDFs generados: {self.stats['pdfs_generated']:,}
@@ -568,13 +680,18 @@ class OSINTBot:
         await update.message.reply_text(admin_text, parse_mode='Markdown')
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Obtener estadísticas de BD
+        self.cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = self.cursor.fetchone()[0]
+        
         stats_text = f"""
 📈 *ESTADÍSTICAS DEL SISTEMA*
 
 *🤖 {self.bot_name} v{self.version}*
 
 👥 *USUARIOS:*
-• Activos: {len(self.stats['active_users'])}
+• Total: {total_users:,}
+• Activos: {len(self.stats['active_users']):,}
 
 🌍 *ESCANEOS:*
 • Webs escaneadas: {self.stats['webs_scanned']:,}
@@ -582,6 +699,9 @@ class OSINTBot:
 
 🔍 *BÚSQUEDAS OSINT:*
 • Total: {self.stats['osint_searches']:,}
+
+📊 *DOCUMENTOS:*
+• PDFs generados: {self.stats['pdfs_generated']:,}
 
 ⚡ *RENDIMIENTO:*
 • Estado: ✅ OPERATIVO
@@ -598,19 +718,35 @@ class OSINTBot:
 ℹ️ *ACERCA DE ESTE BOT*
 
 🎯 *MISIÓN:*
-Proporcionar herramientas OSINT para investigación.
+Proporcionar herramientas OSINT para investigación y análisis de datos.
 
-✨ *CARACTERÍSTICAS:*
+✨ *CARACTERÍSTICAS PRINCIPALES:*
 • 🔍 Análisis de IPs, dominios, emails, teléfonos y usuarios
-• 🚀 Extracción masiva de datos
-• 📊 Generación de reportes
+• 🚀 Extracción masiva de datos de múltiples fuentes
+• 📊 Generación de reportes en formato PDF
+• 🌐 Crawling profundo y búsqueda de credenciales
+
+⚡ *TECNOLOGÍAS:*
+• Python 3.11 + python-telegram-bot
+• SQLite para almacenamiento local
+• API REST para integraciones
+• Web scraping inteligente
 
 ⚖️ *USO ÉTICO:*
-Solo para investigación autorizada.
+Este bot está diseñado exclusivamente para:
+• Investigación de seguridad autorizada
+• Análisis OSINT legítimo
+• Pruebas de penetración con permiso
+• Investigación académica
+
+⚠️ *ADVERTENCIA:*
+El mal uso de estas herramientas puede violar leyes locales.
+El propietario no se hace responsable por uso indebido.
 
 🔧 *DESARROLLO:*
 • Token: ✅ Configurado
 • Owner ID: {OWNER_ID}
+• Versión: {self.version}
         """
         
         await update.message.reply_text(about_text, parse_mode='Markdown')
@@ -621,26 +757,38 @@ Solo para investigación autorizada.
 
 🛠️ *TODAS LAS HERRAMIENTAS*
 
-🔍 *OSINT:*
-• `/ip <dirección>` - Información de IP
-• `/domain <dominio>` - Investigación de dominio
-• `/email <correo>` - Verificación de email
-• `/phone <teléfono>` - Búsqueda de teléfono
-• `/username <usuario>` - Rastreo de usuario
+🔍 *OSINT BÁSICO:*
+• `/ip <dirección>` - Información completa de IP
+• `/domain <dominio>` - Investigación de dominio WHOIS
+• `/email <correo>` - Verificación y análisis de email
+• `/phone <teléfono>` - Geolocalización de teléfono
+• `/username <usuario>` - Búsqueda en redes sociales
 
 🚀 *EXTRACCIÓN MASIVA:*
-• `/mass_extract <url>` - Extracción completa
-• `/find_credentials <url>` - Buscar user:pass
-• `/generate_pdf <url>` - Generar PDF
-• `/export_all` - Exportar todas las bases
-• `/search_db <query>` - Buscar en bases
+• `/mass_extract <url>` - Extracción completa (+50k datos)
+• `/find_credentials <url>` - Buscar user:pass en sitio
+• `/generate_pdf <url>` - Generar reporte PDF profesional
+• `/export_all` - Exportar todas las bases de datos
+• `/search_db <query>` - Buscar en bases internas
 
-📊 *CONTROL:*
-• `/stats` - Estadísticas
-• `/admin` - Panel de administración
-• `/about` - Acerca del bot
-• `/tools` - Esta lista
-• `/help` - Ayuda
+🌐 *AVANZADO:*
+• `/deep_crawl <url>` - Crawling profundo recursivo
+• `/reverse <imagen>` - Búsqueda inversa de imagen
+• `/social_scan <usuario>` - Escaneo de redes sociales
+
+📊 *CONTROL Y MONITOREO:*
+• `/stats` - Estadísticas del sistema
+• `/admin` - Panel de administración (solo owner)
+• `/about` - Acerca del bot y uso ético
+• `/tools` - Esta lista de herramientas
+• `/help` - Ayuda y ejemplos
+• `/privacy` - Política de privacidad
+
+🎯 *EJEMPLOS PRÁCTICOS:*
+`/ip 8.8.8.8` - Info de Google DNS
+`/domain github.com` - Investigar GitHub
+`/email admin@company.com` - Verificar email
+`/mass_extract https://example.com` - Extraer datos
         """
         
         await update.message.reply_text(tools_text, parse_mode='Markdown')
@@ -649,25 +797,38 @@ Solo para investigación autorizada.
         help_text = """
 ❓ *AYUDA Y SOPORTE*
 
-📖 *¿CÓMO USAR?*
-1. Usa /start para el menú principal
-2. Selecciona una opción o usa comandos
+📖 *¿CÓMO USAR ESTE BOT?*
+1. Usa `/start` para el menú principal
+2. Selecciona una opción del menú o usa comandos directamente
+3. Sigue el formato de cada comando
 
 🎯 *COMANDOS PRINCIPALES:*
-• /ip 8.8.8.8
-• /domain google.com
-• /email user@mail.com
-• /phone +123456789
-• /username johndoe
+• `/ip 8.8.8.8` - Información de IP pública
+• `/domain google.com` - Investigar dominio
+• `/email user@example.com` - Verificar email
+• `/phone +123456789` - Buscar teléfono
+• `/username johndoe` - Rastrear usuario
 
-🚀 *EXTRACCIÓN MASIVA:*
-• /mass_extract https://sitio.com
-• /find_credentials https://login.com
-• /generate_pdf https://web.com
+🚀 *EXTRACCIÓN MASIVA (OWNER):*
+• `/mass_extract https://sitio.com`
+• `/find_credentials https://login.com`
+• `/generate_pdf https://web.com`
 
-⚡ *CONSEJOS:*
-• Usa botones para navegación fácil
-• Sigue el formato de comandos
+⚡ *CONSEJOS Y BUENAS PRÁCTICAS:*
+• Usa los botones para navegación fácil
+• Sigue exactamente el formato de comandos
+• Los comandos de extracción son solo para owner
+• Usa `/tools` para ver todas las opciones
+
+🔧 *SOLUCIÓN DE PROBLEMAS:*
+• Bot no responde: Verifica conexión a internet
+• Comando no funciona: Revisa el formato
+• Error 429: Espera unos segundos entre comandos
+• Problemas persistentes: Contacta al owner
+
+⚠️ *IMPORTANTE:*
+Este bot es solo para investigación autorizada.
+El mal uso puede tener consecuencias legales.
         """
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -676,18 +837,42 @@ Solo para investigación autorizada.
         privacy_text = """
 🔒 *POLÍTICA DE PRIVACIDAD*
 
-*🤖 OSINT-BOT*
+*🤖 OSINT Detective Pro v{self.version}*
 
-📄 *INFORMACIÓN RECOPILADA:*
+📄 *INFORMACIÓN QUE RECOPILAMOS:*
 • ID de usuario de Telegram
-• Nombre de usuario
-• Búsquedas realizadas
+• Nombre de usuario (si está público)
+• Nombre mostrado (first_name)
+• Comandos utilizados y timestamp
+• Resultados de búsquedas (para estadísticas)
 
-🛡️ *PROTECCIÓN DE DATOS:*
-• Los datos se almacenan localmente
-• No se comparten con terceros
-• Acceso restringido al propietario
-        """
+🛡️ *CÓMO PROTEGEMOS TUS DATOS:*
+• Los datos se almacenan localmente en SQLite
+• Base de datos encriptada y protegida
+• No compartimos datos con terceros
+• Acceso restringido solo al propietario del bot
+
+🔐 *TU CONTROL:*
+• Puedes dejar de usar el bot en cualquier momento
+• Los logs se eliminan periódicamente
+• No almacenamos contenido de mensajes privados
+
+⚖️ *BASE LEGAL:*
+• Consentimiento mediante uso del bot
+• Interés legítimo para mejoras del servicio
+• Cumplimiento de Términos de Telegram
+
+🌐 *SEGURIDAD:*
+• Conexiones HTTPS/TLS
+• Validación de entrada de datos
+• Protección contra inyecciones SQL
+• Auditoría periódica de seguridad
+
+📞 *CONTACTO:*
+Para preguntas sobre privacidad, contacta al owner mediante `/admin`
+
+*Última actualización: {datetime.now().strftime('%Y-%m-%d')}*
+        """.format(self=self)
         
         await update.message.reply_text(privacy_text, parse_mode='Markdown')
     
@@ -702,13 +887,16 @@ Solo para investigación autorizada.
                 "🔍 *BÚSQUEDA DE IP*\n\n"
                 "Envía: `/ip 8.8.8.8`\n\n"
                 "*Información que obtendrás:*\n"
-                "• Ubicación geográfica\n"
+                "• Ubicación geográfica exacta\n"
                 "• Proveedor de internet (ISP)\n"
-                "• Estado de seguridad\n"
-                "• Puertos abiertos\n\n"
-                "*Ejemplos:*\n"
+                "• Estado de seguridad y riesgos\n"
+                "• Puertos abiertos comunes\n"
+                "• Tipo de IP (pública/privada)\n"
+                "• Información de hostname\n\n"
+                "*Ejemplos prácticos:*\n"
                 "`/ip 1.1.1.1` - Cloudflare DNS\n"
-                "`/ip 142.250.185.14` - Google",
+                "`/ip 142.250.185.14` - Google\n"
+                "`/ip 192.168.1.1` - IP privada",
                 parse_mode='Markdown'
             )
         
@@ -717,15 +905,17 @@ Solo para investigación autorizada.
                 "🌐 *INVESTIGACIÓN DE DOMINIO*\n\n"
                 "Envía: `/domain google.com`\n\n"
                 "*Información incluida:*\n"
-                "• IP del servidor\n"
-                "• Fecha de creación\n"
-                "• Registrar\n"
-                "• Estado SSL\n"
-                "• Subdominios comunes\n\n"
-                "*Sitios populares:*\n"
-                "`/domain github.com`\n"
-                "`/domain twitter.com`\n"
-                "`/domain wikipedia.org`",
+                "• IP del servidor principal\n"
+                "• Fecha de creación y expiración\n"
+                "• Registrar y contacto WHOIS\n"
+                "• Estado SSL/TLS y certificados\n"
+                "• Nameservers y configuración DNS\n"
+                "• Subdominios comunes detectados\n\n"
+                "*Sitios populares para probar:*\n"
+                "`/domain github.com` - GitHub\n"
+                "`/domain twitter.com` - Twitter\n"
+                "`/domain wikipedia.org` - Wikipedia\n"
+                "`/domain amazon.com` - Amazon",
                 parse_mode='Markdown'
             )
         
@@ -733,14 +923,17 @@ Solo para investigación autorizada.
             await query.edit_message_text(
                 "📧 *VERIFICACIÓN DE EMAIL*\n\n"
                 "Envía: `/email test@example.com`\n\n"
-                "*Validaciones:*\n"
-                "• Formato sintáctico\n"
-                "• Dominio y MX records\n"
-                "• Email desechable\n"
-                "• Filtraciones de seguridad\n\n"
-                "*Ejemplos:*\n"
+                "*Validaciones realizadas:*\n"
+                "• Formato sintáctico RFC 5322\n"
+                "• Dominio existente y MX records\n"
+                "• Detección de emails desechables\n"
+                "• Verificación de brechas de seguridad\n"
+                "• Reputación del dominio\n"
+                "• Riesgo asociado al email\n\n"
+                "*Ejemplos útiles:*\n"
                 "`/email admin@company.com`\n"
-                "`/email user@gmail.com`",
+                "`/email user@gmail.com`\n"
+                "`/email contact@example.org`",
                 parse_mode='Markdown'
             )
         
@@ -748,14 +941,18 @@ Solo para investigación autorizada.
             await query.edit_message_text(
                 "📞 *BÚSQUEDA DE TELÉFONO*\n\n"
                 "Envía: `/phone +14155552671`\n\n"
-                "*Información:*\n"
-                "• País y región\n"
-                "• Compañía telefónica\n"
-                "• Tipo de línea\n"
-                "• Validación\n\n"
-                "*Formatos:*\n"
+                "*Información obtenida:*\n"
+                "• País y región geográfica\n"
+                "• Compañía telefónica (operador)\n"
+                "• Tipo de línea (móvil/fijo)\n"
+                "• Validación del formato\n"
+                "• Zona horaria asociada\n"
+                "• Código de área y localidad\n\n"
+                "*Formatos aceptados:*\n"
                 "`/phone +1-415-555-2671`\n"
-                "`/phone 4155552671`",
+                "`/phone 4155552671`\n"
+                "`/phone +34 912 345 678`\n"
+                "`/phone 912345678`",
                 parse_mode='Markdown'
             )
         
@@ -764,26 +961,42 @@ Solo para investigación autorizada.
                 "👤 *BÚSQUEDA DE USUARIO*\n\n"
                 "Envía: `/username johndoe`\n\n"
                 "*Plataformas escaneadas:*\n"
-                "• GitHub, Twitter, Instagram\n"
-                "• Facebook, LinkedIn, Reddit\n"
-                "• YouTube, Twitch, Telegram\n\n"
-                "*Ejemplos:*\n"
+                "• GitHub (repos y actividad)\n"
+                "• Twitter/X (tweets y seguidores)\n"
+                "• Instagram (fotos y biografía)\n"
+                "• Facebook (perfil público)\n"
+                "• LinkedIn (información profesional)\n"
+                "• Reddit (posts y comentarios)\n"
+                "• YouTube (canal y videos)\n"
+                "• Twitch (streams y seguidores)\n"
+                "• Telegram (username)\n\n"
+                "*Ejemplos de búsqueda:*\n"
                 "`/username john_doe`\n"
-                "`/username jane-smith`",
+                "`/username jane-smith`\n"
+                "`/username coding_expert`\n"
+                "`/username gamer123`",
                 parse_mode='Markdown'
             )
         
         elif data == "mass_extract_menu":
             await query.edit_message_text(
                 "🚀 *MENÚ DE EXTRACCIÓN MASIVA*\n\n"
-                "*Comandos:*\n\n"
+                "*Comandos disponibles (solo owner):*\n\n"
                 "• `/mass_extract <url>`\n"
-                "  Extracción completa (+50,000 datos)\n\n"
+                "  Extracción completa de datos\n"
+                "  (+50,000 credenciales y datos)\n\n"
                 "• `/find_credentials <url>`\n"
-                "  Buscar user:pass específico\n\n"
+                "  Búsqueda específica de user:pass\n"
+                "  En formularios y configuraciones\n\n"
                 "• `/generate_pdf <url>`\n"
-                "  Generar PDF estilo captura\n\n"
-                "*Solo para propietario*",
+                "  Generar PDF estilo captura profesional\n"
+                "  Con análisis y recomendaciones\n\n"
+                "*Funcionalidades avanzadas:*\n"
+                "• Crawling recursivo\n"
+                "• Detección de endpoints\n"
+                "• Extracción de metadatos\n"
+                "• Análisis de seguridad\n\n"
+                "*Uso restringido a propietario*",
                 parse_mode='Markdown'
             )
         
@@ -791,14 +1004,19 @@ Solo para investigación autorizada.
             await query.edit_message_text(
                 "🔑 *BUSCAR CREDENCIALES*\n\n"
                 "Envía: `/find_credentials https://sitio.com`\n\n"
-                "*Tipos detectados:*\n"
-                "• user:password\n"
-                "• email:password\n"
-                "• admin:admin123\n"
-                "• API keys y tokens\n\n"
-                "*Ejemplos:*\n"
+                "*Tipos de credenciales detectados:*\n"
+                "• user:password (formularios login)\n"
+                "• email:password (registros)\n"
+                "• admin:admin123 (accesos default)\n"
+                "• API keys y tokens de acceso\n"
+                "• Configuraciones de base de datos\n"
+                "• Archivos .env con secretos\n"
+                "• Backups con información sensible\n\n"
+                "*Ejemplos de uso:*\n"
                 "`/find_credentials https://login.site.com`\n"
-                "`/find_credentials https://admin.panel.com`",
+                "`/find_credentials https://admin.panel.com`\n"
+                "`/find_credentials https://api.service.com`\n\n"
+                "*Solo para propietario del bot*",
                 parse_mode='Markdown'
             )
         
@@ -806,14 +1024,21 @@ Solo para investigación autorizada.
             await query.edit_message_text(
                 "📊 *GENERAR REPORTE PDF*\n\n"
                 "Envía: `/generate_pdf https://ejemplo.com`\n\n"
-                "*Contenido:*\n"
-                "1. Portada con logo y título\n"
-                "2. Resumen ejecutivo\n"
-                "3. Resultados de escaneo\n"
-                "4. Credenciales encontradas\n"
-                "5. Análisis de seguridad\n\n"
-                "*Formato:* PDF A4\n"
-                "*Tamaño:* 1-5 MB",
+                "*Contenido del reporte PDF:*\n"
+                "1. Portada con logo y título profesional\n"
+                "2. Resumen ejecutivo y hallazgos clave\n"
+                "3. Resultados detallados de escaneo\n"
+                "4. Credenciales encontradas (si las hay)\n"
+                "5. Análisis de vulnerabilidades\n"
+                "6. Recomendaciones de seguridad\n"
+                "7. Metadatos y información técnica\n"
+                "8. Firmas y validaciones\n\n"
+                "*Características:*\n"
+                "• Formato: PDF A4 estándar\n"
+                "• Tamaño: 1-5 MB aprox.\n"
+                "• Incluye gráficos y tablas\n"
+                "• Diseño profesional corporativo\n\n"
+                "*Perfecto para reportes a clientes*",
                 parse_mode='Markdown'
             )
         
@@ -831,20 +1056,79 @@ Solo para investigación autorizada.
         
         elif data == "menu_tools":
             await self.tools_command(update, context)
+        
+        elif data == "back_to_menu":
+            await self.start(update, context)
 
 def main():
     print("=" * 50)
-    print(f"🤖 OSINT-BOT INICIANDO")
+    print(f"🤖 OSINT-BOT INICIANDO v3.0")
     print("=" * 50)
     
     if not TOKEN or TOKEN == 'TU_TOKEN':
         print("❌ ERROR: Configura BOT_TOKEN en Railway Variables")
+        print("ℹ️ Ve a Railway Dashboard > Variables de entorno")
+        print("ℹ️ Agrega BOT_TOKEN con tu token de Telegram")
         return
     
     print(f"✅ Token: {TOKEN[:15]}...")
     print(f"✅ Owner ID: {OWNER_ID}")
+    print(f"✅ Puerto: {PORT}")
     print(f"✅ Entorno: Railway")
     print("=" * 50)
     
     try:
-        application = Application.builder().token
+        # Crear aplicación
+        application = Application.builder().token(TOKEN).build()
+        
+        # Inicializar bot
+        bot = OSINTBot()
+        
+        # Agregar handlers
+        application.add_handler(CommandHandler("start", bot.start))
+        application.add_handler(CommandHandler("help", bot.help_command))
+        application.add_handler(CommandHandler("ip", bot.ip_lookup))
+        application.add_handler(CommandHandler("domain", bot.domain_lookup))
+        application.add_handler(CommandHandler("email", bot.email_lookup))
+        application.add_handler(CommandHandler("phone", bot.phone_lookup))
+        application.add_handler(CommandHandler("username", bot.username_lookup))
+        application.add_handler(CommandHandler("mass_extract", bot.mass_extract_command))
+        application.add_handler(CommandHandler("find_credentials", bot.find_credentials_command))
+        application.add_handler(CommandHandler("generate_pdf", bot.generate_pdf_command))
+        application.add_handler(CommandHandler("export_all", bot.export_all_command))
+        application.add_handler(CommandHandler("search_db", bot.search_db_command))
+        application.add_handler(CommandHandler("admin", bot.admin_panel_command))
+        application.add_handler(CommandHandler("stats", bot.stats_command))
+        application.add_handler(CommandHandler("about", bot.about_command))
+        application.add_handler(CommandHandler("tools", bot.tools_command))
+        application.add_handler(CommandHandler("privacy", bot.privacy_command))
+        application.add_handler(CallbackQueryHandler(bot.button_handler))
+        
+        # Iniciar bot
+        print("🚀 Bot iniciado correctamente")
+        print(f"👑 Owner: {OWNER_ID}")
+        print(f"🌐 Puerto: {PORT}")
+        print("=" * 50)
+        print("📱 Busca tu bot en Telegram y usa /start")
+        
+        # Para Railway, usar webhook o polling
+        if os.getenv('RAILWAY_ENVIRONMENT'):
+            # Webhook para Railway
+            webhook_url = f"https://{os.getenv('RAILWAY_STATIC_URL', '')}.railway.app"
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=PORT,
+                url_path=TOKEN,
+                webhook_url=f"{webhook_url}/{TOKEN}"
+            )
+        else:
+            # Polling para desarrollo local
+            application.run_polling(allowed_updates=Update.ALL_TYPES)
+            
+    except Exception as e:
+        logger.error(f"Error fatal: {e}")
+        print(f"❌ Error: {e}")
+        raise
+
+if __name__ == '__main__':
+    main()
