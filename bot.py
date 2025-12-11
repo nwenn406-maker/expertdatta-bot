@@ -13,8 +13,8 @@ import whois
 import psutil
 
 # Configuración
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID", "")
+TOKEN = os.getenv("8382109200:AAE83AVpz5NyoglrPlMvW3SwGmvXR5ki9VU")
+ADMIN_ID = os.getenv("7767981731", "")
 
 # Configurar logging
 logging.basicConfig(
