@@ -819,4 +819,37 @@ def health():
         "bot": "operational",
         "real_data": True,
         "/analyze": "working",
-        "uptime": str(datetime.now() -
+        "uptime": str(datetime.now() - datetime.fromisoformat(bot.stats['start_time'])).split('.')[0]
+    }, 200
+
+@app.route('/stats')
+def stats_api():
+    """API de estadísticas"""
+    return {
+        "bot_stats": bot.stats,
+        "system_time": datetime.now().isoformat(),
+        "railway_env": {
+            "port": PORT,
+            "webhook_url": WEBHOOK_URL,
+            "bot_token_exists": bool(BOT_TOKEN)
+        }
+    }, 200
+
+# ============================
+# INICIALIZACIÓN RAILWAY
+# ============================
+
+def start_background_polling():
+    """Iniciar polling como respaldo"""
+    logger.info("⚡ Iniciando polling como respaldo...")
+    bot.start_polling_background()
+
+if __name__ == "__main__":
+    logger.info(f"🚀 Iniciando servidor en puerto {PORT}")
+    logger.info("🤖 Bot configurado para DATOS REALES")
+    
+    # Iniciar polling en background
+    start_background_polling()
+    
+    # Iniciar Flask
+    app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
